@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — ALPHA TIDAK KEREN TITIK</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      margin: 0; background: #0f172a; color: #e2e8f0; font-size: 14px;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    }
+    .login-wrap { width: 100%; max-width: 400px; padding: 20px; }
+    .brand { text-align: center; margin-bottom: 20px; }
+    .brand h1 { font-size: 18px; margin: 0; font-weight: 600; }
+    .brand p { font-size: 12px; color: #94a3b8; margin: 4px 0 0; }
+    .card {
+      background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 24px;
+    }
+    label { display: block; margin-bottom: 4px; font-size: 12px; color: #94a3b8; }
+    input[type=text], input[type=password] {
+      width: 100%; padding: 8px 10px; background: #0f172a; border: 1px solid #334155;
+      border-radius: 6px; color: #e2e8f0; font-size: 13px; margin-bottom: 14px;
+    }
+    input:focus { outline: none; border-color: #3b82f6; }
+    button {
+      width: 100%; padding: 10px; border: none; border-radius: 6px; font-size: 14px;
+      font-weight: 600; cursor: pointer; background: #2563eb; color: #fff;
+    }
+    button:hover { background: #1d4ed8; }
+    #errBox {
+      background: #7f1d1d; color: #fecaca; padding: 10px 12px; border-radius: 6px;
+      margin-bottom: 16px; font-size: 13px;
+    }
+    .hint { font-size: 11px; color: #64748b; margin: -8px 0 14px; }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="brand">
+      <h1>ALPHA TIDAK KEREN TITIK</h1>
+      <p>Login pakai akun upstream</p>
+    </div>
+    <div class="card">
+      {% if error %}<div id="errBox">{{ error }}</div>{% endif %}
+      <form method="post" action="{{ url_for('login') }}">
+        <label>Base URL upstream</label>
+        <input type="text" name="base_url" placeholder="https://upstream.internal"
+               value="{{ base_url or '' }}" autofocus required>
+        <p class="hint">URL dasar upstream (tanpa path). Beda per client.</p>
+
+        <label>Username</label>
+        <input type="text" name="username" autocomplete="username"
+               value="{{ username or '' }}" required>
+
+        <label>Password</label>
+        <input type="password" name="password" autocomplete="current-password" required>
+        <p class="hint">Password cuma dipakai buat login, nggak disimpan ke disk.</p>
+
+        <button type="submit">Login</button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>

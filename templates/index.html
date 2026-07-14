@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ALPHA TIDAK KEREN TITIK</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      margin: 0; background: #0f172a; color: #e2e8f0; font-size: 14px;
+    }
+    header {
+      background: #1e293b; padding: 14px 20px; display: flex;
+      align-items: center; justify-content: space-between; border-bottom: 1px solid #334155;
+    }
+    header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+    header a { color: #93c5fd; text-decoration: none; font-size: 13px; }
+    header a:hover { text-decoration: underline; }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 20px; }
+    .card {
+      background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+      padding: 18px; margin-bottom: 16px;
+    }
+    .card h2 { font-size: 14px; margin: 0 0 14px; font-weight: 600; color: #cbd5e1; }
+    label { display: block; margin-bottom: 4px; font-size: 12px; color: #94a3b8; }
+    input[type=text], input[type=password], input[type=number], select {
+      width: 100%; padding: 8px 10px; background: #0f172a; border: 1px solid #334155;
+      border-radius: 6px; color: #e2e8f0; font-size: 13px; margin-bottom: 12px;
+    }
+    input:focus, select:focus { outline: none; border-color: #3b82f6; }
+    .row { display: flex; gap: 12px; }
+    .row > div { flex: 1; }
+    .toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .toggle input { width: auto; margin: 0; }
+    .toggle label { margin: 0; color: #e2e8f0; font-size: 13px; }
+    button {
+      padding: 9px 18px; border: none; border-radius: 6px; font-size: 13px;
+      font-weight: 600; cursor: pointer;
+    }
+    .btn-start { background: #16a34a; color: #fff; }
+    .btn-start:hover { background: #15803d; }
+    .btn-stop { background: #dc2626; color: #fff; }
+    .btn-stop:hover { background: #b91c1c; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .stats { display: flex; gap: 20px; margin-bottom: 12px; }
+    .stat { text-align: center; }
+    .stat .num { font-size: 22px; font-weight: 700; }
+    .stat .lbl { font-size: 11px; color: #94a3b8; text-transform: uppercase; }
+    .stat.closed .num { color: #22c55e; }
+    .stat.skipped .num { color: #eab308; }
+    .stat.left .num { color: #64748b; }
+    .stat.cycles .num { color: #3b82f6; }
+    #log {
+      background: #020617; border: 1px solid #334155; border-radius: 6px;
+      padding: 12px; height: 340px; overflow-y: auto; font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 12px; line-height: 1.6; white-space: pre-wrap; color: #cbd5e1;
+    }
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .dot-on { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    .dot-off { background: #64748b; }
+    #statusText { font-size: 13px; color: #94a3b8; }
+    #errBox {
+      background: #7f1d1d; color: #fecaca; padding: 10px 12px; border-radius: 6px;
+      margin-bottom: 12px; font-size: 13px; display: none;
+    }
+    .hint { font-size: 11px; color: #64748b; margin-top: -8px; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ALPHA TIDAK KEREN TITIK</h1>
+    <div style="display:flex; align-items:center; gap:16px;">
+      <span style="font-size:12px; color:#94a3b8;">
+        {{ username }}{% if base_url %} @ {{ base_url }}{% endif %}
+      </span>
+      <a href="{{ url_for('rules') }}">Kelola Rules &rarr;</a>
+      <form method="post" action="{{ url_for('logout') }}" style="margin:0;">
+        <button type="submit" style="background:#7f1d1d; color:#fecaca; padding:5px 12px; font-size:12px;">Logout</button>
+      </form>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div id="errBox"></div>
+
+    <div class="card">
+      <h2>Kontrol Bot</h2>
+      <form id="startForm">
+        <div class="row">
+          <div>
+            <label>Dari tanggal</label>
+            <input type="date" name="date_from" id="date_from" value="{{ settings.date_from }}">
+          </div>
+          <div>
+            <label>Sampai tanggal</label>
+            <input type="date" name="date_to" id="date_to" value="{{ settings.date_to }}">
+          </div>
+        </div>
+        <p class="hint">Kosongin dua-duanya buat pakai mode "N hari terakhir" di bawah. Kalau diisi, range tanggal yang dipakai (di-AND sama shift).</p>
+
+        <div class="row">
+          <div>
+            <label>Shift</label>
+            <select name="shift_time" id="shift_time">
+              {% for opt in shift_options %}
+              <option value="{{ opt }}" {% if opt == settings.shift_time %}selected{% endif %}>{{ opt }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label>N hari terakhir (kalau tanggal kosong)</label>
+            <input type="number" name="last_days" id="last_days"
+                   min="1" value="{{ settings.last_days }}">
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label>Interval sapu (detik)</label>
+            <input type="number" name="poll_interval_seconds" id="poll_interval_seconds"
+                   min="30" value="{{ settings.poll_interval_seconds }}">
+          </div>
+          <div>
+            <label>Maks close per sapu (0 = tanpa batas)</label>
+            <input type="number" name="max_close_per_cycle" id="max_close_per_cycle"
+                   min="0" value="{{ settings.max_close_per_cycle }}">
+            <p class="hint">Batas alarm yang di-close tiap sapu. Isi 0 = tanpa batas (close semua yang match).</p>
+          </div>
+        </div>
+
+        <div class="toggle">
+          <input type="checkbox" name="protect_high_severity" id="protect_high_severity"
+                 {% if settings.protect_high_severity %}checked{% endif %}>
+          <label for="protect_high_severity">Protect severity high &amp; critical (selalu skip, terlepas dari rules)</label>
+        </div>
+
+        <button type="submit" class="btn-start" id="btnStart">Start Bot</button>
+        <button type="button" class="btn-stop" id="btnStop" disabled>Stop</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Status</h2>
+      <p><span class="status-dot dot-off" id="dot"></span><span id="statusText">Bot belum jalan.</span></p>
+      <div class="stats">
+        <div class="stat closed"><div class="num" id="s_closed">0</div><div class="lbl">Closed</div></div>
+        <div class="stat skipped"><div class="num" id="s_skipped">0</div><div class="lbl">Skipped</div></div>
+        <div class="stat left"><div class="num" id="s_left">0</div><div class="lbl">Dibiarkan</div></div>
+        <div class="stat cycles"><div class="num" id="s_cycles">0</div><div class="lbl">Siklus</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Live Log</h2>
+      <div id="log">Menunggu...</div>
+    </div>
+  </div>
+
+  <script>
+    const errBox = document.getElementById('errBox');
+    const btnStart = document.getElementById('btnStart');
+    const btnStop = document.getElementById('btnStop');
+    const logEl = document.getElementById('log');
+    const dot = document.getElementById('dot');
+    const statusText = document.getElementById('statusText');
+
+    // Countdown ke siklus berikutnya. Server kasih sisa detik tiap poll (3s);
+    // di antara poll, kita decrement lokal tiap detik biar mulus.
+    let cooldown = 0;      // sisa detik
+    let botRunning = false;
+
+    function renderStatus() {
+      if (!botRunning) {
+        dot.className = 'status-dot dot-off';
+        statusText.textContent = 'Bot belum jalan.';
+        return;
+      }
+      dot.className = 'status-dot dot-on';
+      if (cooldown > 0) {
+        statusText.textContent = 'Bot jalan — siklus berikutnya dalam ' + cooldown + 's.';
+      } else {
+        statusText.textContent = 'Bot jalan — lagi menyapu alarm...';
+      }
+    }
+
+    // Ticker lokal 1 detik: turunin countdown biar nggak nunggu poll berikutnya.
+    setInterval(() => {
+      if (botRunning && cooldown > 0) {
+        cooldown -= 1;
+        renderStatus();
+      }
+    }, 1000);
+
+    function showErr(msg) {
+      errBox.textContent = msg;
+      errBox.style.display = msg ? 'block' : 'none';
+    }
+
+    document.getElementById('startForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      showErr('');
+      btnStart.disabled = true;
+      const fd = new FormData(e.target);
+      // Checkbox: FormData cuma kirim kalau checked; normalisasi ke on/off.
+      if (!fd.has('protect_high_severity')) fd.set('protect_high_severity', 'off');
+      else fd.set('protect_high_severity', 'on');
+      try {
+        const res = await fetch('/start', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!data.ok) {
+          showErr(data.error || 'Gagal start.');
+          btnStart.disabled = false;
+          return;
+        }
+      } catch (err) {
+        showErr('Gagal konek ke server: ' + err);
+        btnStart.disabled = false;
+      }
+    });
+
+    btnStop.addEventListener('click', async () => {
+      btnStop.disabled = true;
+      try {
+        await fetch('/stop', { method: 'POST' });
+      } catch (err) {
+        showErr('Gagal stop: ' + err);
+      }
+    });
+
+    async function poll() {
+      try {
+        const res = await fetch('/status');
+        const s = await res.json();
+        // Stats
+        document.getElementById('s_closed').textContent = s.stats.closed ?? 0;
+        document.getElementById('s_skipped').textContent = s.stats.skipped ?? 0;
+        document.getElementById('s_left').textContent = s.stats.left ?? 0;
+        document.getElementById('s_cycles').textContent = s.stats.cycles ?? 0;
+        // Log
+        if (s.logs && s.logs.length) {
+          const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
+          logEl.textContent = s.logs.join('\n');
+          if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+        }
+        // State — sync dari server, countdown di-render oleh ticker lokal.
+        botRunning = s.running;
+        cooldown = s.cooldown ?? 0;
+        renderStatus();
+        btnStart.disabled = s.running;
+        btnStop.disabled = !s.running;
+      } catch (err) {
+        // Diamkan error polling sementara, coba lagi siklus berikutnya.
+      }
+    }
+
+    setInterval(poll, 3000);
+    poll();
+  </script>
+</body>
+</html>

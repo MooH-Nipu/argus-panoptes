@@ -1,0 +1,16 @@
+# Protect List = daftar alarm yang HARUS DI-SKIP bot (jangan pernah di-close),
+# walaupun kebetulan juga match whitelist. Prioritasnya LEBIH TINGGI dari
+# whitelist. Tujuannya: alarm yang masih butuh review manual jangan sampai
+# ke-close otomatis.
+#
+# Dikelola lewat UI (halaman Rules), file ini cuma storage-nya.
+#
+# Field matching yang didukung (isi salah satu atau kombinasi per rule):
+#   severity_equals      : exact match severity (contoh: critical, high, medium, low)
+#   alarm_name_equals    : exact match nama alarm (case-insensitive)
+#   alarm_name_contains  : substring match nama alarm (case-insensitive)
+# Tiap rule WAJIB punya `reason` (buat audit log kenapa di-protect).
+
+protect:
+  - alarm_name_contains: "ransomware"
+    reason: "Indikasi kritis, jangan pernah auto-close"
