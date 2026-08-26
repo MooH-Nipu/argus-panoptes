@@ -14,6 +14,7 @@ browser automation karena upstream credentials-based tanpa OTP/SSO (§3.4).
 from __future__ import annotations
 
 import json
+import os
 import time
 from contextlib import nullcontext
 from typing import Any, Callable, Optional
@@ -68,6 +69,18 @@ HIGH_SEVERITIES = {"high", "critical"}
 DEFAULT_TIMEOUT = 30.0
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2.0  # detik, dikali attempt
+
+
+def _new_client() -> httpx.Client:
+    """Build upstream client with explicit TLS policy from environment."""
+    ca_bundle = os.getenv("ARGUS_CA_BUNDLE", "").strip()
+    insecure = os.getenv("ARGUS_TLS_INSECURE", "").strip().lower() in {"1", "true", "yes"}
+    verify: bool | str = ca_bundle or not insecure
+    return httpx.Client(
+        follow_redirects=False,
+        timeout=DEFAULT_TIMEOUT,
+        verify=verify,
+    )
 
 
 class ArgusError(Exception):
@@ -180,7 +193,7 @@ def login(base_url: str, username: str, password: str) -> str:
 
     Nggak butuh Playwright — pure HTTP karena nggak ada OTP/SSO (§3.4)."""
     base = _origin(base_url)
-    with httpx.Client(follow_redirects=False, timeout=DEFAULT_TIMEOUT) as client:
+    with _new_client() as client:
         # Step 1: ambil CSRF token.
         csrf_resp = client.get(f"{base}/api/auth/csrf")
         csrf_resp.raise_for_status()
@@ -311,7 +324,7 @@ def fetch_all_open_alarms(
 ) -> list[dict[str, Any]]:
     """Loop semua page buat status tertentu (default Undefined)."""
     alarms: list[dict[str, Any]] = []
-    scope = nullcontext(client) if client else httpx.Client(timeout=DEFAULT_TIMEOUT)
+    scope = nullcontext(client) if client else _new_client()
     with scope as http:
         first = fetch_alarms_page(
             http, base_url, cookie, 1, page_size, shift_time, status,
@@ -449,7 +462,7 @@ def close_alarms(
     if skip_take_ids is None:
         skip_take_ids = set()
     submitted: set[str] = set()
-    with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+    with _new_client() as client:
         for aid in ids:
             if should_stop and should_stop():
                 if log:
@@ -531,7 +544,7 @@ def suppress_alarms(
         return set()
     reason = (reason or "")[:REASON_MAX_LEN]
     submitted: set[str] = set()
-    with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+    with _new_client() as client:
         for aid in ids:
             if should_stop and should_stop():
                 if log:
