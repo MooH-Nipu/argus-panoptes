@@ -365,6 +365,7 @@ def _match_rule(alarm: dict[str, Any], rule: dict[str, Any]) -> bool:
     name = _norm(alarm.get("alarm_name"))
     atype = _norm(alarm.get("alarm_type"))
     agent = _norm(alarm.get("agent_name"))
+    client = _norm(alarm.get("client"))
     sev = _norm(alarm.get("severity"))
 
     checks = {
@@ -372,6 +373,7 @@ def _match_rule(alarm: dict[str, Any], rule: dict[str, Any]) -> bool:
         "alarm_name_contains": lambda v: _norm(v) in name,
         "alarm_type_equals": lambda v: atype == _norm(v),
         "agent_name_equals": lambda v: agent == _norm(v),
+        "client_equals": lambda v: client == _norm(v),
         "severity_equals": lambda v: sev == _norm(v),
     }
     matched_any = False

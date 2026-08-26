@@ -56,6 +56,7 @@ WHITELIST_FIELDS = [
     "alarm_name_contains",
     "alarm_type_equals",
     "agent_name_equals",
+    "client_equals",
 ]
 PROTECT_FIELDS = [
     "severity_equals",

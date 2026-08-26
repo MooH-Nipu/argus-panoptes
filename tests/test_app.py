@@ -9,6 +9,14 @@ import app
 
 
 class StartSettingsValidationTests(unittest.TestCase):
+    def test_whitelist_accepts_client_field(self) -> None:
+        cleaned = app.cfg._clean_rule(
+            {"alarm_name_equals": "Alarm A", "client_equals": "DP-TASPEN", "reason": "FP"},
+            app.cfg.WHITELIST_FIELDS,
+        )
+
+        self.assertEqual(cleaned["client_equals"], "DP-TASPEN")
+
     def test_rejects_unbounded_and_malformed_settings(self) -> None:
         invalid = {
             "shift_time": "garbage",

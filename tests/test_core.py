@@ -72,6 +72,20 @@ class TLSConfigurationTests(unittest.TestCase):
         self.assertEqual(client.call_args.kwargs["verify"], "local-certs/upstream.pem")
 
 
+class RuleMatchingTests(unittest.TestCase):
+    def test_client_equals_matches_case_insensitively(self) -> None:
+        alarm = {"alarm_name": "Alarm A", "client": "DP-TASPEN"}
+        rule = {"alarm_name_equals": "Alarm A", "client_equals": "dp-taspen"}
+
+        self.assertTrue(core._match_rule(alarm, rule))
+
+    def test_client_and_alarm_name_must_both_match(self) -> None:
+        alarm = {"alarm_name": "Alarm A", "client": "PAC"}
+        rule = {"alarm_name_equals": "Alarm A", "client_equals": "DP-TASPEN"}
+
+        self.assertFalse(core._match_rule(alarm, rule))
+
+
 class ServerActionRetryTests(unittest.TestCase):
     def test_auth_error_is_never_retried(self) -> None:
         client = Client([Response(403), Response(200)])
