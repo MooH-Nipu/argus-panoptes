@@ -26,6 +26,18 @@ python app.py
 
 Open `http://127.0.0.1:5000`.
 
+## Docker / LAN review
+
+```bash
+cp .env.example .env
+# Edit ARGUS_ALLOWED_ORIGINS. Keep BIND_IP set to this server's LAN IP.
+docker compose up -d --build
+```
+
+From another PC on the same LAN, open `http://<BIND_IP>:5000`.
+
+Default Compose binding is `127.0.0.1`; LAN access requires an explicit `BIND_IP`. Avoid `0.0.0.0` unless exposing every interface is intentional.
+
 ## Safety model
 
 - Browser keeps only opaque local session ID. upstream token stays in server memory.

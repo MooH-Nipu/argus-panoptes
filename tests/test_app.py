@@ -80,6 +80,11 @@ class WebSecurityTests(unittest.TestCase):
         response = self.client.get("/status")
         self.assertEqual(response.status_code, 302)
 
+    def test_health_is_public_and_minimal(self) -> None:
+        response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {"ok": True})
+
 
 if __name__ == "__main__":
     unittest.main()

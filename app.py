@@ -479,6 +479,11 @@ def _run_one_cycle(
 
 # ---------- Routes: dashboard ----------
 
+@app.route("/health")
+def health():
+    return jsonify({"ok": True})
+
+
 @app.route("/")
 @login_required
 def index():

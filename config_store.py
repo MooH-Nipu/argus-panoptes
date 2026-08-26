@@ -13,7 +13,7 @@ from typing import Any
 
 import yaml
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.getenv("CONFIG_DIR", os.path.dirname(os.path.abspath(__file__)))
 
 SETTINGS_PATH = os.path.join(BASE_DIR, "settings.yaml")
 WHITELIST_PATH = os.path.join(BASE_DIR, "whitelist.yaml")
