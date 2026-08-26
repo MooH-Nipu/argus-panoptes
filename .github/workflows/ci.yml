@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt ruff pip-audit
+      - run: python -m unittest discover -v
+      - run: ruff check . --select F,E9,RUF100
+      - run: python -m compileall -q app.py config_store.py argus_core.py
+      - run: pip-audit -r requirements.txt

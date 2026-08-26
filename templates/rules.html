@@ -36,7 +36,7 @@
       width: 100%; padding: 7px 9px; background: #0f172a; border: 1px solid #334155;
       border-radius: 6px; color: #e2e8f0; font-size: 13px;
     }
-    input:focus, select:focus { outline: none; border-color: #3b82f6; }
+    input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid #82b7f4; outline-offset: 2px; border-color: #82b7f4; }
     .addrow { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
     .addrow > div { flex: 1; min-width: 140px; }
     .addrow label { display: block; font-size: 11px; color: #94a3b8; margin-bottom: 4px; }
@@ -53,6 +53,10 @@
       margin-bottom: 16px; font-size: 13px;
     }
     .note { font-size: 11px; color: #64748b; margin-top: 8px; }
+    .policy { padding: 12px 14px; margin-bottom: 16px; border: 1px solid #35577b; border-radius: 6px; background: #111f2d; color: #bfd6ee; font-size: 12px; }
+    .table-wrap { overflow-x: auto; }
+    @media (max-width: 700px) { header { align-items: flex-start; flex-direction: column; } .wrap { padding: 12px; } button, input, select { min-height: 44px; } }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
   </style>
 </head>
 <body>
@@ -61,12 +65,14 @@
     <div style="display:flex; align-items:center; gap:16px;">
       <a href="{{ url_for('index') }}">&larr; Kembali ke Dashboard</a>
       <form method="post" action="{{ url_for('logout') }}" style="margin:0;">
+        {{ csrf_input() }}
         <button type="submit" style="background:#7f1d1d; color:#fecaca; padding:5px 12px; font-size:12px;">Logout</button>
       </form>
     </div>
   </header>
 
   <div class="wrap">
+    <div class="policy"><strong>Whitelist mengikuti keputusan operator.</strong> Bot tidak menilai ulang nama alarm. Rule tersimpan dianggap false positive terverifikasi; protect list tetap menang jika dua rule match.</div>
     {% if error %}<div id="errBox">{{ error }}</div>{% endif %}
 
     <!-- ===== PROTECT LIST ===== -->
@@ -96,6 +102,7 @@
               <td>
                 <form method="post" action="{{ url_for('delete_protect', index=loop.index0) }}"
                       onsubmit="return confirm('Hapus rule protect ini?');">
+                  {{ csrf_input() }}
                   <button type="submit" class="btn-del">Hapus</button>
                 </form>
               </td>
@@ -108,6 +115,7 @@
       </table>
 
       <form method="post" action="{{ url_for('add_protect') }}">
+        {{ csrf_input() }}
         <div class="addrow">
           {% for f in protect_fields %}
           <div>
@@ -154,6 +162,7 @@
               <td>
                 <form method="post" action="{{ url_for('delete_whitelist', index=loop.index0) }}"
                       onsubmit="return confirm('Hapus rule whitelist ini?');">
+                  {{ csrf_input() }}
                   <button type="submit" class="btn-del">Hapus</button>
                 </form>
               </td>
@@ -166,6 +175,7 @@
       </table>
 
       <form method="post" action="{{ url_for('add_whitelist') }}">
+        {{ csrf_input() }}
         <div class="addrow">
           {% for f in whitelist_fields %}
           <div>

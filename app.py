@@ -20,9 +20,10 @@ import secrets
 import threading
 import time
 from collections import deque
-from datetime import datetime
+from datetime import date, datetime
 from functools import wraps
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from flask import (
     Flask,
@@ -39,8 +40,15 @@ import argus_core as core
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)  # sesi Flask lokal, regenerate tiap start
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Strict",
+)
 
 MAX_LOG_LINES = 500
+MIN_POLL_INTERVAL = 30
+MAX_POLL_INTERVAL = 86_400
+MAX_CLOSE_LIMIT = 500
 
 
 class BotState:
@@ -54,6 +62,7 @@ class BotState:
         self.running = False
         self.base_url = ""
         self.username = ""
+        self.upstream_cookie = ""
         self.last_cycle: str = ""
         # Epoch (detik) kapan siklus berikutnya mulai. 0 = lagi nggak cooldown
         # (bot lagi kerja / belum jalan). Dipakai UI buat hitung mundur.
@@ -102,16 +111,97 @@ def _get_bot(create: bool = False) -> Optional[BotState]:
         return bot
 
 
+def _csrf_token() -> str:
+    token = session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["csrf_token"] = token
+    return token
+
+
+def _csrf_input() -> str:
+    from markupsafe import Markup
+
+    return Markup(f'<input type="hidden" name="csrf_token" value="{_csrf_token()}">')
+
+
+def validate_base_url(value: str) -> str:
+    parsed = urlparse(value.strip())
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ValueError("Base URL wajib HTTPS dan punya hostname valid.")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("Base URL tidak boleh berisi kredensial, query, atau fragment.")
+    if parsed.path not in ("", "/"):
+        raise ValueError("Base URL tidak boleh berisi path.")
+    allowed = {item.strip().rstrip("/") for item in os.getenv("ARGUS_ALLOWED_ORIGINS", "").split(",") if item.strip()}
+    origin = f"https://{parsed.netloc}"
+    if not allowed:
+        raise ValueError("ARGUS_ALLOWED_ORIGINS belum dikonfigurasi.")
+    if origin not in allowed:
+        raise ValueError("Base URL tidak ada di ARGUS_ALLOWED_ORIGINS.")
+    return origin
+
+
+def validate_start_settings(form: Any, defaults: dict[str, Any]) -> dict[str, Any]:
+    shift = (form.get("shift_time") or "").strip()
+    if shift not in cfg.SHIFT_OPTIONS:
+        raise ValueError("Shift tidak valid.")
+    interval = _to_int(form.get("poll_interval_seconds"), -1)
+    if not MIN_POLL_INTERVAL <= interval <= MAX_POLL_INTERVAL:
+        raise ValueError(f"Interval wajib {MIN_POLL_INTERVAL}-{MAX_POLL_INTERVAL} detik.")
+    max_close = _to_int(form.get("max_close_per_cycle"), -1)
+    if not 1 <= max_close <= MAX_CLOSE_LIMIT:
+        raise ValueError(f"Maks close wajib 1-{MAX_CLOSE_LIMIT}.")
+    date_from = (form.get("date_from") or "").strip()
+    date_to = (form.get("date_to") or "").strip()
+    if bool(date_from) != bool(date_to):
+        raise ValueError("Dari dan sampai tanggal wajib diisi berpasangan.")
+    if date_from:
+        try:
+            start_date, end_date = date.fromisoformat(date_from), date.fromisoformat(date_to)
+        except ValueError as exc:
+            raise ValueError("Format tanggal wajib YYYY-MM-DD.") from exc
+        if start_date > end_date:
+            raise ValueError("Dari tanggal tidak boleh setelah sampai tanggal.")
+    last_days = _to_int(form.get("last_days"), -1)
+    if not 1 <= last_days <= 365:
+        raise ValueError("N hari terakhir wajib 1-365.")
+    return {
+        **defaults,
+        "shift_time": shift,
+        "poll_interval_seconds": interval,
+        "max_close_per_cycle": max_close,
+        "protect_high_severity": form.get("protect_high_severity") == "on",
+        "date_from": date_from,
+        "date_to": date_to,
+        "last_days": str(last_days),
+        "dry_run": form.get("live_mode") != "on",
+        "enable_suppress_fallback": form.get("enable_suppress_fallback") == "on",
+    }
+
+
+app.jinja_env.globals.update(csrf_token=_csrf_token, csrf_input=_csrf_input)
+
+
+@app.before_request
+def verify_csrf():
+    if request.method != "POST":
+        return None
+    supplied = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token", "")
+    expected = session.get("csrf_token", "")
+    if not expected or not secrets.compare_digest(supplied, expected):
+        return jsonify({"ok": False, "error": "CSRF token tidak valid. Refresh halaman."}), 403
+    return None
+
+
 # ---------- Auth level-aplikasi ----------
-# Login sekali -> cookie upstream + base_url disimpan di Flask session (server-side
-# signed cookie). Password TIDAK disimpan. Semua halaman di-gate; kalau session
-# kosong -> redirect ke /login. Cookie upstream bisa expired (session upstream timeout);
-# kalau bot mulai kena 403, user tinggal logout+login lagi.
+# Browser hanya menyimpan sid acak. Cookie upstream tinggal di BotState server-side.
 
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
-        if not session.get("upstream_cookie"):
+        bot = _get_bot()
+        if not bot or not bot.upstream_cookie:
             return redirect(url_for("login"))
         return view(*args, **kwargs)
     return wrapped
@@ -121,7 +211,8 @@ def login_required(view):
 def login():
     if request.method == "GET":
         # Kalau udah login, langsung ke dashboard.
-        if session.get("upstream_cookie"):
+        bot = _get_bot()
+        if bot and bot.upstream_cookie:
             return redirect(url_for("index"))
         return render_template("login.html")
 
@@ -132,27 +223,37 @@ def login():
         return render_template("login.html", error="Base URL, username, dan password wajib diisi.")
 
     try:
+        base_url = validate_base_url(base_url)
         cookie = core.login(base_url, username, password)
-    except core.LoginError as exc:
+    except (ValueError, core.LoginError) as exc:
         return render_template("login.html", error=f"Login gagal: {exc}", base_url=base_url, username=username)
     except Exception as exc:
         return render_template("login.html", error=f"Login error: {exc}", base_url=base_url, username=username)
 
-    session["upstream_cookie"] = cookie
-    session["base_url"] = base_url.rstrip("/")
+    bot = _get_bot(create=True)
+    assert bot is not None
+    bot.upstream_cookie = cookie
+    bot.base_url = base_url.rstrip("/")
+    bot.username = username
+    session["base_url"] = base_url
     session["username"] = username
     return redirect(url_for("index"))
 
 
 @app.route("/logout", methods=["POST"])
+@login_required
 def logout():
     # Stop bot dulu kalau lagi jalan (cookie-nya bakal ilang).
     bot = _get_bot()
     if bot and bot.running:
         bot.stop_event.set()
-    session.pop("upstream_cookie", None)
-    session.pop("base_url", None)
-    session.pop("username", None)
+    if bot:
+        if bot.thread and bot.thread.is_alive():
+            bot.thread.join(timeout=2)
+        bot.upstream_cookie = ""
+        with _BOTS_LOCK:
+            RUNNING_BOTS.pop(_get_sid(), None)
+    session.clear()
     return redirect(url_for("login"))
 
 
@@ -162,7 +263,7 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
     """Loop utama: sapu tiap interval sampai stop_event di-set (§8)."""
     shift = settings["shift_time"]
     page_size = int(settings["page_size"])
-    batch_size = int(settings["batch_size"])
+
     interval = int(settings["poll_interval_seconds"])
     protect_high = bool(settings["protect_high_severity"])
     max_close = int(settings["max_close_per_cycle"])
@@ -179,39 +280,39 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
             f"protect_high_severity={'ON' if protect_high else 'OFF'}, "
             f"close {limit_txt}.")
 
-    while not bot.stop_event.is_set():
-        cycle_start = time.time()
-        try:
-            _run_one_cycle(bot, cookie, shift, page_size, batch_size, protect_high,
-                           max_close, date_from, date_to, last_days)
-        except core.ArgusError as exc:
-            bot.log(f"ERROR siklus: {exc}")
-        except Exception as exc:  # jangan biarkan thread mati diam-diam
-            bot.log(f"ERROR tak terduga: {exc}")
+    try:
+        while not bot.stop_event.is_set():
+            cycle_start = time.time()
+            _run_one_cycle(bot, cookie, shift, page_size, protect_high,
+                           max_close, date_from, date_to, last_days,
+                           bool(settings.get("dry_run", True)),
+                           bool(settings.get("enable_suppress_fallback", False)))
 
-        with bot.lock:
-            bot.stats["cycles"] += 1
-            bot.last_cycle = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with bot.lock:
+                bot.stats["cycles"] += 1
+                bot.last_cycle = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Sleep interval, tapi cek stop tiap detik biar responsif.
-        elapsed = time.time() - cycle_start
-        remaining = max(0, interval - int(elapsed))
-        if remaining:
-            bot.log(f"Siklus selesai. Tunggu {remaining}s sampai siklus berikutnya.")
+            elapsed = time.time() - cycle_start
+            remaining = max(0, interval - int(elapsed))
+            if remaining:
+                bot.log(f"Siklus selesai. Tunggu {remaining}s sampai siklus berikutnya.")
+                with bot.lock:
+                    bot.next_cycle_at = time.time() + remaining
+            bot.stop_event.wait(remaining)
             with bot.lock:
-                bot.next_cycle_at = time.time() + remaining
-        for _ in range(remaining):
-            if bot.stop_event.is_set():
-                break
-            time.sleep(1)
-        # Mulai kerja lagi -> nggak cooldown.
+                bot.next_cycle_at = 0.0
+    except core.ArgusAuthError as exc:
+        bot.log(f"AUTH ERROR: {exc} Login ulang diperlukan.")
+    except core.ArgusError as exc:
+        bot.log(f"ERROR siklus: {exc}")
+    except Exception as exc:
+        bot.log(f"ERROR tak terduga: {exc}")
+    finally:
+        bot.log("Bot berhenti.")
         with bot.lock:
+            bot.running = False
             bot.next_cycle_at = 0.0
-
-    bot.log("Bot berhenti.")
-    with bot.lock:
-        bot.running = False
-        bot.next_cycle_at = 0.0
 
 
 def _run_one_cycle(
@@ -219,12 +320,13 @@ def _run_one_cycle(
     cookie: str,
     shift: str,
     page_size: int,
-    batch_size: int,
     protect_high: bool,
     max_close: int,
     date_from: str = "",
     date_to: str = "",
     last_days: str = "1",
+    dry_run: bool = True,
+    enable_suppress_fallback: bool = False,
 ) -> None:
     """Satu siklus sapu: fetch -> evaluate -> group -> close -> verify (§4.4).
 
@@ -302,8 +404,26 @@ def _run_one_cycle(
         bot.stats["skipped"] += n_skip
         bot.stats["left"] += n_leave
 
+    if dry_run:
+        for reason, ids in to_close.items():
+            bot.log(f'DRY RUN — {len(ids)} kandidat, reason: "{reason}" IDs={ids}')
+        return
+
     # Close per kelompok reason, lalu verifikasi.
     should_stop = bot.stop_event.is_set
+
+    def confirm_owner(aid: str) -> bool:
+        refreshed = core.fetch_all_open_alarms(
+            bot.base_url, cookie, shift, page_size=page_size,
+            status=core.STATUS_UNDEFINED, log=None,
+            date_from=date_from, date_to=date_to, last_days=last_days,
+        )
+        return any(
+            str(alarm.get("_id")) == aid
+            and core._norm(alarm.get("email")) == my_email
+            for alarm in refreshed
+        )
+
     for reason, ids in to_close.items():
         # Stop dicek antar-grup — kalau user klik Stop, jangan mulai grup baru.
         if should_stop():
@@ -312,8 +432,8 @@ def _run_one_cycle(
         bot.log(f"Close {len(ids)} alarm, reason: \"{reason}\"")
         sent = core.close_alarms(
             bot.base_url, cookie, ids, reason,
-            batch_size=batch_size, log=bot.log, should_stop=should_stop,
-            skip_take_ids=skip_take_ids,
+            log=bot.log, should_stop=should_stop,
+            skip_take_ids=skip_take_ids, confirm_owner=confirm_owner,
         )
         verified, missing = core.verify_false_positive(
             bot.base_url, cookie, ids, shift, page_size=page_size, log=bot.log,
@@ -326,7 +446,16 @@ def _run_one_cycle(
         # Keterkaitan grup nggak keliatan di fetch, jadi kita nggak deteksi di
         # depan — pakai `missing` dari verify sebagai sinyal butuh suppress.
         # Skip fallback kalau lagi stop (biar Stop langsung ngefek).
-        if missing and not should_stop():
+        if missing and enable_suppress_fallback and not should_stop():
+            bot.log("  Tunggu 2s lalu verifikasi ulang sebelum fallback suppress.")
+            if bot.stop_event.wait(2):
+                break
+            verified_retry, missing = core.verify_false_positive(
+                bot.base_url, cookie, sorted(missing), shift, page_size=page_size,
+                log=bot.log, date_from=date_from, date_to=date_to, last_days=last_days,
+            )
+            verified |= verified_retry
+        if missing and enable_suppress_fallback and not should_stop():
             miss_ids = sorted(missing)
             bot.log(f"  {len(miss_ids)} alarm nggak pindah — coba jalur suppress.")
             core.suppress_alarms(
@@ -369,46 +498,33 @@ def index():
 @login_required
 def start():
     bot = _get_bot(create=True)
-    if bot.running:
-        return jsonify({"ok": False, "error": "Bot sudah jalan."}), 400
-
-    cookie = session.get("upstream_cookie")
-    base_url = session.get("base_url", "")
+    assert bot is not None
+    cookie = bot.upstream_cookie
+    base_url = bot.base_url
     if not cookie or not base_url:
         return jsonify({"ok": False, "error": "Sesi login habis. Login ulang."}), 401
 
-    # Simpan/gabung setting dari form.
-    settings = cfg.load_settings()
-    form_settings = {
-        "shift_time": request.form.get("shift_time") or settings["shift_time"],
-        "poll_interval_seconds": _to_int(request.form.get("poll_interval_seconds"),
-                                         settings["poll_interval_seconds"]),
-        "max_close_per_cycle": _to_int(request.form.get("max_close_per_cycle"),
-                                       settings["max_close_per_cycle"]),
-        "protect_high_severity": request.form.get("protect_high_severity") == "on",
-        # Date range (format YYYY-MM-DD). Kalau kosong, fallback ke last_days.
-        "date_from": (request.form.get("date_from") or "").strip(),
-        "date_to": (request.form.get("date_to") or "").strip(),
-        "last_days": (request.form.get("last_days") or "").strip() or settings["last_days"],
-    }
-    settings.update(form_settings)
+    try:
+        settings = validate_start_settings(request.form, cfg.load_settings())
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     cfg.save_settings(settings)
 
-    bot.stop_event.clear()
-    bot.base_url = base_url
-    bot.username = session.get("username", "")
-    bot.running = True
     with bot.lock:
+        if bot.running:
+            return jsonify({"ok": False, "error": "Bot sudah jalan."}), 400
+        bot.stop_event.clear()
+        bot.running = True
         bot.logs.clear()
         bot.stats = {"closed": 0, "skipped": 0, "left": 0, "cycles": 0}
-
-    thread = threading.Thread(target=_bot_loop, args=(bot, cookie, settings), daemon=True)
-    bot.thread = thread
+        thread = threading.Thread(target=_bot_loop, args=(bot, cookie, settings), daemon=True)
+        bot.thread = thread
     thread.start()
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "dry_run": settings["dry_run"]})
 
 
 @app.route("/stop", methods=["POST"])
+@login_required
 def stop():
     bot = _get_bot()
     if not bot or not bot.running:
@@ -419,6 +535,7 @@ def stop():
 
 
 @app.route("/status")
+@login_required
 def status():
     bot = _get_bot()
     if not bot:

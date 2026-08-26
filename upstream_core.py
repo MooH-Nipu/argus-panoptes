@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import nullcontext
 from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
@@ -77,6 +78,10 @@ class LoginError(ArgusError):
     """Login gagal (kredensial salah / flow berubah)."""
 
 
+class ArgusAuthError(ArgusError):
+    """Sesi upstream tidak valid; retry tidak akan memperbaikinya."""
+
+
 class ArgusParseError(ArgusError):
     """Response bukan format RSC yang diharapkan (baris '1:' nggak ketemu).
     Ini error PERMANEN — retry nggak akan nolong. Terjadi mis. pas alarm udah
@@ -127,6 +132,7 @@ def _call_server_action(
     payload: Any,
     referer_path: str,
     debug_log: Optional[Callable[[str], None]] = None,
+    retry_transient: bool = True,
 ) -> Any:
     """POST server action + retry buat error transient (5xx / network).
     Balikin hasil sudah di-parse dari RSC.
@@ -139,14 +145,15 @@ def _call_server_action(
     headers = _action_headers(base_url, cookie, action, referer_path)
     body = json.dumps(payload)
 
+    attempts = MAX_RETRIES if retry_transient else 1
     last_exc: Optional[Exception] = None
-    for attempt in range(1, MAX_RETRIES + 1):
+    for attempt in range(1, attempts + 1):
         try:
             resp = client.post(url, headers=headers, content=body, timeout=DEFAULT_TIMEOUT)
             if resp.status_code >= 500:
                 raise ArgusError(f"Server error {resp.status_code} dari upstream.")
             if resp.status_code == 403:
-                raise ArgusError(
+                raise ArgusAuthError(
                     "403 Forbidden — sesi kemungkinan expired atau Next-Action hash berubah."
                 )
             resp.raise_for_status()
@@ -154,18 +161,15 @@ def _call_server_action(
                 debug_log(f"DEBUG status={resp.status_code} len={len(resp.text)} "
                           f"raw[:1000]=\n{resp.text[:1000]}")
             return parse_rsc_response(resp.text)
-        except ArgusParseError:
-            # Error permanen (response bukan format RSC — biasanya alarm udah
-            # ke-take orang lain, atau alarm_count kegedean). Retry nggak nolong,
-            # langsung nyerah biar nggak buang ~13 detik/alarm.
+        except (ArgusParseError, ArgusAuthError):
             raise
         except (httpx.TransportError, ArgusError) as exc:
             last_exc = exc
-            if attempt < MAX_RETRIES:
+            if attempt < attempts:
                 time.sleep(RETRY_BACKOFF * attempt)
             else:
                 raise
-    raise ArgusError(f"Gagal setelah {MAX_RETRIES} percobaan: {last_exc}")
+    raise ArgusError(f"Gagal setelah {attempts} percobaan: {last_exc}")
 
 
 # ---------- Login (§3.4) ----------
@@ -205,6 +209,7 @@ def login(base_url: str, username: str, password: str) -> str:
             data=form,
             cookies=pre_cookies,
         )
+        login_resp.raise_for_status()
 
         # Step 3: ekstrak session token dari cookie jar.
         session_cookie = _extract_session_cookie(client.cookies)
@@ -302,14 +307,14 @@ def fetch_all_open_alarms(
     date_from: str = "",
     date_to: str = "",
     last_days: str = "1",
+    client: Optional[httpx.Client] = None,
 ) -> list[dict[str, Any]]:
-    """Loop semua page buat status tertentu (default Undefined). Balikin list
-    alarm object mentah. date range (date_from/date_to, format YYYY-MM-DD) vs
-    last_days mutually exclusive — lihat _build_fetch_payload."""
+    """Loop semua page buat status tertentu (default Undefined)."""
     alarms: list[dict[str, Any]] = []
-    with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+    scope = nullcontext(client) if client else httpx.Client(timeout=DEFAULT_TIMEOUT)
+    with scope as http:
         first = fetch_alarms_page(
-            client, base_url, cookie, 1, page_size, shift_time, status,
+            http, base_url, cookie, 1, page_size, shift_time, status,
             date_from, date_to, last_days, debug_log=log,
         )
         alarms.extend(first.get("data", []) or [])
@@ -318,7 +323,7 @@ def fetch_all_open_alarms(
             log(f"Fetch '{status}': {first.get('totalItems', '?')} item, {total_pages} page.")
         for page in range(2, total_pages + 1):
             data = fetch_alarms_page(
-                client, base_url, cookie, page, page_size, shift_time, status,
+                http, base_url, cookie, page, page_size, shift_time, status,
                 date_from, date_to, last_days,
             )
             alarms.extend(data.get("data", []) or [])
@@ -410,7 +415,8 @@ def _take_alarm(
     for i, action in enumerate(ACTION_TAKE):
         payload = [aid, ""] if i == 2 else [aid]
         _call_server_action(
-            client, base_url, cookie, action, payload, referer_path=ALARM_PATH
+            client, base_url, cookie, action, payload, referer_path=ALARM_PATH,
+            retry_transient=False,
         )
 
 
@@ -419,10 +425,10 @@ def close_alarms(
     cookie: str,
     ids: list[str],
     reason: str,
-    batch_size: int = 50,  # noqa: ARG001 - dipertahankan buat kompatibilitas app.py; close sekarang per-alarm
     log: Optional[Callable[[str], None]] = None,
     should_stop: Optional[Callable[[], bool]] = None,
     skip_take_ids: Optional[set[str]] = None,
+    confirm_owner: Optional[Callable[[str], bool]] = None,
 ) -> int:
     """Close alarm PER-ALARM, 2 langkah: TAKE dulu, baru set False Positive (§3.3).
     Alur ini confirmed dari capture DevTools + docx: set FP tanpa take = silent fail.
@@ -440,7 +446,8 @@ def close_alarms(
     if not ids:
         return 0
     reason = (reason or "")[:REASON_MAX_LEN]
-    skip_take_ids = skip_take_ids or set()
+    if skip_take_ids is None:
+        skip_take_ids = set()
     sent = 0
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
         for aid in ids:
@@ -455,10 +462,16 @@ def close_alarms(
                         log(f"  [{aid}] udah ke-take sendiri, skip take.")
                 else:
                     _take_alarm(client, base_url, cookie, aid)
+                    if confirm_owner and not confirm_owner(aid):
+                        if log:
+                            log(f"  GAGAL [{aid}]: ownership setelah take tidak terkonfirmasi.")
+                        continue
+                    skip_take_ids.add(aid)
                 # Langkah 2: set False Positive (format 3-argumen, §3.3).
                 payload = [[aid], STATUS_FALSE_POSITIVE, reason]
                 _call_server_action(
-                    client, base_url, cookie, ACTION_CLOSE, payload, referer_path=ALARM_PATH
+                    client, base_url, cookie, ACTION_CLOSE, payload,
+                    referer_path=ALARM_PATH, retry_transient=False,
                 )
                 sent += 1
                 if log:
@@ -529,6 +542,8 @@ def suppress_alarms(
                 # take ulang -> parse error). Langsung submit suppress aja.
                 if not (skip_take_ids and aid in skip_take_ids):
                     _take_alarm(client, base_url, cookie, aid)
+                    if skip_take_ids is not None:
+                        skip_take_ids.add(aid)
                 payload = [
                     [aid],
                     WHITELIST_CATEGORY,
@@ -536,7 +551,8 @@ def suppress_alarms(
                     _build_suppress_config([aid]),
                 ]
                 _call_server_action(
-                    client, base_url, cookie, ACTION_CLOSE, payload, referer_path=ALARM_PATH
+                    client, base_url, cookie, ACTION_CLOSE, payload,
+                    referer_path=ALARM_PATH, retry_transient=False,
                 )
                 sent += 1
                 if log:

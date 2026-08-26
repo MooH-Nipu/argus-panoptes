@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 from typing import Any
 
 import yaml
@@ -17,6 +18,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_PATH = os.path.join(BASE_DIR, "settings.yaml")
 WHITELIST_PATH = os.path.join(BASE_DIR, "whitelist.yaml")
 PROTECT_PATH = os.path.join(BASE_DIR, "protect_list.yaml")
+_CONFIG_LOCK = threading.RLock()
 
 # Pilihan shift buat dropdown UI.
 # CATATAN: cuma shift 1 yang CONFIRMED dari reverse-engineering (PROJECT_SPEC §3.2).
@@ -33,12 +35,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "poll_interval_seconds": 300,
     "protect_high_severity": True,
     "shift_time": SHIFT_OPTIONS[0],
-    "batch_size": 50,
     "page_size": 100,
     # Maks alarm yang di-close dalam SATU sapu (lintas semua grup reason).
     # 0 = tanpa batas (close semua yang match). Beda dari batch_size yang cuma
     # ngatur jumlah ID per HTTP request.
     "max_close_per_cycle": 100,
+    "dry_run": True,
+    "enable_suppress_fallback": False,
     # Rentang waktu fetch alarm. date_from/date_to (format YYYY-MM-DD) di-AND
     # sama shift_time. Kalau dua-duanya keisi -> pakai date range, last_days
     # diabaikan. Kalau kosong -> fallback ke last_days (jumlah hari terakhir).
@@ -86,17 +89,19 @@ def _write_yaml(path: str, data: Any) -> None:
 # ---------- Settings ----------
 
 def load_settings() -> dict[str, Any]:
-    data = _read_yaml(SETTINGS_PATH) or {}
-    merged = dict(DEFAULT_SETTINGS)
-    if isinstance(data, dict):
-        merged.update({k: data[k] for k in data if k in DEFAULT_SETTINGS})
-    return merged
+    with _CONFIG_LOCK:
+        data = _read_yaml(SETTINGS_PATH) or {}
+        merged = dict(DEFAULT_SETTINGS)
+        if isinstance(data, dict):
+            merged.update({k: data[k] for k in data if k in DEFAULT_SETTINGS})
+        return merged
 
 
 def save_settings(settings: dict[str, Any]) -> None:
-    current = load_settings()
-    current.update({k: settings[k] for k in settings if k in DEFAULT_SETTINGS})
-    _write_yaml(SETTINGS_PATH, current)
+    with _CONFIG_LOCK:
+        current = load_settings()
+        current.update({k: settings[k] for k in settings if k in DEFAULT_SETTINGS})
+        _write_yaml(SETTINGS_PATH, current)
 
 
 # ---------- Rules (whitelist & protect) ----------
@@ -124,7 +129,8 @@ def load_whitelist() -> list[dict[str, Any]]:
 
 
 def save_whitelist(rules: list[dict[str, Any]]) -> None:
-    _write_yaml(WHITELIST_PATH, {"whitelist": rules})
+    with _CONFIG_LOCK:
+        _write_yaml(WHITELIST_PATH, {"whitelist": rules})
 
 
 def load_protect() -> list[dict[str, Any]]:
@@ -134,48 +140,55 @@ def load_protect() -> list[dict[str, Any]]:
 
 
 def save_protect(rules: list[dict[str, Any]]) -> None:
-    _write_yaml(PROTECT_PATH, {"protect": rules})
+    with _CONFIG_LOCK:
+        _write_yaml(PROTECT_PATH, {"protect": rules})
 
 
 def add_whitelist_rule(rule: dict[str, Any]) -> None:
-    rules = load_whitelist()
-    rules.append(_clean_rule(rule, WHITELIST_FIELDS))
-    save_whitelist(rules)
+    with _CONFIG_LOCK:
+        rules = load_whitelist()
+        rules.append(_clean_rule(rule, WHITELIST_FIELDS))
+        save_whitelist(rules)
 
 
 def update_whitelist_rule(index: int, rule: dict[str, Any]) -> None:
-    rules = load_whitelist()
-    if not 0 <= index < len(rules):
-        raise IndexError("Index rule whitelist di luar jangkauan.")
-    rules[index] = _clean_rule(rule, WHITELIST_FIELDS)
-    save_whitelist(rules)
+    with _CONFIG_LOCK:
+        rules = load_whitelist()
+        if not 0 <= index < len(rules):
+            raise IndexError("Index rule whitelist di luar jangkauan.")
+        rules[index] = _clean_rule(rule, WHITELIST_FIELDS)
+        save_whitelist(rules)
 
 
 def delete_whitelist_rule(index: int) -> None:
-    rules = load_whitelist()
-    if not 0 <= index < len(rules):
-        raise IndexError("Index rule whitelist di luar jangkauan.")
-    rules.pop(index)
-    save_whitelist(rules)
+    with _CONFIG_LOCK:
+        rules = load_whitelist()
+        if not 0 <= index < len(rules):
+            raise IndexError("Index rule whitelist di luar jangkauan.")
+        rules.pop(index)
+        save_whitelist(rules)
 
 
 def add_protect_rule(rule: dict[str, Any]) -> None:
-    rules = load_protect()
-    rules.append(_clean_rule(rule, PROTECT_FIELDS))
-    save_protect(rules)
+    with _CONFIG_LOCK:
+        rules = load_protect()
+        rules.append(_clean_rule(rule, PROTECT_FIELDS))
+        save_protect(rules)
 
 
 def update_protect_rule(index: int, rule: dict[str, Any]) -> None:
-    rules = load_protect()
-    if not 0 <= index < len(rules):
-        raise IndexError("Index rule protect di luar jangkauan.")
-    rules[index] = _clean_rule(rule, PROTECT_FIELDS)
-    save_protect(rules)
+    with _CONFIG_LOCK:
+        rules = load_protect()
+        if not 0 <= index < len(rules):
+            raise IndexError("Index rule protect di luar jangkauan.")
+        rules[index] = _clean_rule(rule, PROTECT_FIELDS)
+        save_protect(rules)
 
 
 def delete_protect_rule(index: int) -> None:
-    rules = load_protect()
-    if not 0 <= index < len(rules):
-        raise IndexError("Index rule protect di luar jangkauan.")
-    rules.pop(index)
-    save_protect(rules)
+    with _CONFIG_LOCK:
+        rules = load_protect()
+        if not 0 <= index < len(rules):
+            raise IndexError("Index rule protect di luar jangkauan.")
+        rules.pop(index)
+        save_protect(rules)

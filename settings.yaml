@@ -1,9 +1,10 @@
 poll_interval_seconds: 200
 protect_high_severity: false
 shift_time: 2 (08:00 - 16:00)
-batch_size: 50
 page_size: 100
 max_close_per_cycle: 100
+dry_run: true
+enable_suppress_fallback: false
 date_from: ''
 date_to: ''
 last_days: '1'
