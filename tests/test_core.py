@@ -85,6 +85,40 @@ class RuleMatchingTests(unittest.TestCase):
 
         self.assertFalse(core._match_rule(alarm, rule))
 
+    def test_exclusion_rule_returns_exclude_action(self) -> None:
+        alarm = {"alarm_name": "Alarm A", "client": "PAC", "severity": "medium"}
+        whitelist = [{
+            "alarm_name_equals": "Alarm A",
+            "client_equals": "PAC",
+            "disposition": "Exclusion",
+            "reason": "Already ticketed",
+        }]
+
+        self.assertEqual(
+            core.evaluate_alarm(alarm, whitelist, [], False),
+            ("exclude", "Already ticketed"),
+        )
+
+
+class DispositionVerificationTests(unittest.TestCase):
+    def test_exclusion_verification_fetches_exclusion_tab(self) -> None:
+        with patch.object(
+            core,
+            "fetch_all_open_alarms",
+            return_value=[{"_id": "A"}],
+        ) as fetch:
+            verified, missing = core.verify_disposition(
+                "https://upstream.test",
+                "cookie",
+                ["A"],
+                "1 (00:00 - 08:00)",
+                disposition="Exclusion",
+            )
+
+        self.assertEqual(verified, {"A"})
+        self.assertEqual(missing, set())
+        self.assertEqual(fetch.call_args.kwargs["status"], "Exclusion")
+
 
 class ServerActionRetryTests(unittest.TestCase):
     def test_auth_error_is_never_retried(self) -> None:
@@ -113,6 +147,78 @@ class ServerActionRetryTests(unittest.TestCase):
 
 
 class ClaimFallbackTests(unittest.TestCase):
+    def test_exclusion_uses_captured_three_argument_payload(self) -> None:
+        payloads: list[object] = []
+        original_take = core._take_alarm
+        original_call = core._call_server_action
+        try:
+            core._take_alarm = lambda *args: None
+            core._call_server_action = lambda *args, **kwargs: payloads.append(args[4])
+            submitted = core.close_alarms(
+                "https://upstream.test",
+                "c",
+                ["148256423787"],
+                "alarm already raised to ticket",
+                disposition="Exclusion",
+                confirm_owner=lambda aid: True,
+            )
+        finally:
+            core._take_alarm = original_take
+            core._call_server_action = original_call
+
+        self.assertEqual(submitted, {"148256423787"})
+        self.assertEqual(
+            payloads,
+            [[ ["148256423787"], "Exclusion", "alarm already raised to ticket" ]],
+        )
+
+    def test_exclusion_rechecks_ownership_for_already_taken_alarm(self) -> None:
+        payloads: list[object] = []
+        original_call = core._call_server_action
+        try:
+            core._call_server_action = lambda *args, **kwargs: payloads.append(args[4])
+            submitted = core.close_alarms(
+                "https://upstream.test",
+                "c",
+                ["A"],
+                "Ticketed",
+                skip_take_ids={"A"},
+                disposition="Exclusion",
+                confirm_owner=lambda aid: False,
+            )
+        finally:
+            core._call_server_action = original_call
+
+        self.assertEqual(submitted, set())
+        self.assertEqual(payloads, [])
+
+    def test_close_requires_ownership_callback(self) -> None:
+        with self.assertRaisesRegex(ValueError, "confirm_owner"):
+            core.close_alarms("https://upstream.test", "c", ["A"], "reason")
+
+    def test_suppress_requires_ownership_callback(self) -> None:
+        with self.assertRaisesRegex(ValueError, "confirm_owner"):
+            core.suppress_alarms("https://upstream.test", "c", ["A"], "reason")
+
+    def test_suppress_rechecks_ownership_for_already_taken_alarm(self) -> None:
+        payloads: list[object] = []
+        original_call = core._call_server_action
+        try:
+            core._call_server_action = lambda *args, **kwargs: payloads.append(args[4])
+            submitted = core.suppress_alarms(
+                "https://upstream.test",
+                "c",
+                ["A"],
+                "reason",
+                skip_take_ids={"A"},
+                confirm_owner=lambda aid: False,
+            )
+        finally:
+            core._call_server_action = original_call
+
+        self.assertEqual(submitted, set())
+        self.assertEqual(payloads, [])
+
     def test_successful_take_is_recorded_for_fallback(self) -> None:
         claimed: set[str] = set()
         original_take = core._take_alarm
@@ -121,7 +227,8 @@ class ClaimFallbackTests(unittest.TestCase):
             core._take_alarm = lambda client, base, cookie, aid: claimed.add(aid)
             core._call_server_action = lambda *args, **kwargs: {"ok": True}
             submitted = core.close_alarms(
-                "https://upstream.test", "c", ["A"], "reason", skip_take_ids=claimed
+                "https://upstream.test", "c", ["A"], "reason",
+                skip_take_ids=claimed, confirm_owner=lambda aid: True,
             )
         finally:
             core._take_alarm = original_take

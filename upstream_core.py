@@ -3,8 +3,8 @@
 Isi:
   - login()                : NextAuth credentials flow (PROJECT_SPEC §3.4)
   - fetch_all_open_alarms(): loop page ambil alarm status="Undefined" (§3.2)
-  - close_alarms()         : batch close, chunking konservatif (§3.3, §4.4)
-  - verify_false_positive(): re-fetch tab FP, cek ID beneran pindah (§4.4)
+  - close_alarms()         : submit FP/Exclusion per alarm (§3.3, §4.4)
+  - verify_disposition()   : re-fetch tab tujuan, cek ID beneran pindah (§4.4)
   - evaluate_alarm()       : matching prioritas protect-sev -> protect -> whitelist (§4.3)
 
 Semua request server action pakai HTTP client biasa (httpx) — nggak perlu
@@ -53,6 +53,8 @@ ALARM_PATH = "/x-alarm"
 # Status tab di upstream (§3.2).
 STATUS_UNDEFINED = "Undefined"
 STATUS_FALSE_POSITIVE = "False Positive"
+STATUS_EXCLUSION = "Exclusion"
+DISPOSITIONS = {STATUS_FALSE_POSITIVE, STATUS_EXCLUSION}
 
 # Kategori arg1 buat alur suppress/whitelist (§3.3, capture DevTools). Alarm
 # grup (punya "Similar Alerts") silent-fail di jalur FP 3-argumen biasa; harus
@@ -410,7 +412,8 @@ def evaluate_alarm(
     # 3. Whitelist.
     for rule in whitelist:
         if _match_rule(alarm, rule):
-            return ("close", rule.get("reason", "Known false positive"))
+            action = "exclude" if rule.get("disposition") == STATUS_EXCLUSION else "close"
+            return (action, rule.get("reason", "Known false positive"))
 
     # 4. Nggak match apa-apa.
     return ("leave", "")
@@ -444,9 +447,10 @@ def close_alarms(
     should_stop: Optional[Callable[[], bool]] = None,
     skip_take_ids: Optional[set[str]] = None,
     confirm_owner: Optional[Callable[[str], bool]] = None,
+    disposition: str = STATUS_FALSE_POSITIVE,
 ) -> set[str]:
-    """Close alarm PER-ALARM, 2 langkah: TAKE dulu, baru set False Positive (§3.3).
-    Alur ini confirmed dari capture DevTools + docx: set FP tanpa take = silent fail.
+    """Mutasi alarm PER-ALARM: TAKE dulu, lalu set disposition (§3.3).
+    Alur ini confirmed dari capture DevTools: mutation tanpa take = silent fail.
 
     Batch multi-ID di-DROP karena take kelihatannya per-alarm. Reason dipotong 250
     char (batas modal upstream). Balikin jumlah alarm yang berhasil dikirim (bukan
@@ -457,9 +461,13 @@ def close_alarms(
 
     skip_take_ids: ID yang udah ke-take akun sendiri (field `email` == user login).
     Buat ID ini, langkah take di-SKIP (take ulang alarm yang udah ke-take = server
-    balik response non-RSC = gagal). Langsung set FP aja."""
+    balik response non-RSC = gagal). Langsung set disposition aja."""
     if not ids:
         return set()
+    if confirm_owner is None:
+        raise ValueError("confirm_owner wajib untuk mutation.")
+    if disposition not in DISPOSITIONS:
+        raise ValueError(f"Disposition tidak valid: {disposition}")
     reason = (reason or "")[:REASON_MAX_LEN]
     if skip_take_ids is None:
         skip_take_ids = set()
@@ -477,20 +485,20 @@ def close_alarms(
                         log(f"  [{aid}] udah ke-take sendiri, skip take.")
                 else:
                     _take_alarm(client, base_url, cookie, aid)
-                    if confirm_owner and not confirm_owner(aid):
-                        if log:
-                            log(f"  GAGAL [{aid}]: ownership setelah take tidak terkonfirmasi.")
-                        continue
                     skip_take_ids.add(aid)
-                # Langkah 2: set False Positive (format 3-argumen, §3.3).
-                payload = [[aid], STATUS_FALSE_POSITIVE, reason]
+                if not confirm_owner(aid):
+                    if log:
+                        log(f"  GAGAL [{aid}]: ownership sebelum mutation tidak terkonfirmasi.")
+                    continue
+                # Langkah 2: set disposition (format 3-argumen, §3.3).
+                payload = [[aid], disposition, reason]
                 _call_server_action(
                     client, base_url, cookie, ACTION_CLOSE, payload,
                     referer_path=ALARM_PATH, retry_transient=False,
                 )
                 submitted.add(aid)
                 if log:
-                    log(f"  take+FP [{aid}] ok ({len(submitted)}/{len(ids)}).")
+                    log(f"  take+{disposition} [{aid}] ok ({len(submitted)}/{len(ids)}).")
             except ArgusError as exc:
                 if log:
                     log(f"  GAGAL [{aid}]: {exc}")
@@ -544,6 +552,8 @@ def suppress_alarms(
     config (src_ip + dest_ip). Balikin jumlah yang berhasil dikirim."""
     if not ids:
         return set()
+    if confirm_owner is None:
+        raise ValueError("confirm_owner wajib untuk mutation.")
     reason = (reason or "")[:REASON_MAX_LEN]
     submitted: set[str] = set()
     with _new_client() as client:
@@ -558,15 +568,11 @@ def suppress_alarms(
                 # take ulang -> parse error). Langsung submit suppress aja.
                 if not (skip_take_ids and aid in skip_take_ids):
                     _take_alarm(client, base_url, cookie, aid)
-                    if confirm_owner and not confirm_owner(aid):
-                        if log:
-                            log(f"  GAGAL suppress [{aid}]: ownership setelah take tidak terkonfirmasi.")
-                        continue
                     if skip_take_ids is not None:
                         skip_take_ids.add(aid)
-                elif confirm_owner and not confirm_owner(aid):
+                if not confirm_owner(aid):
                     if log:
-                        log(f"  GAGAL suppress [{aid}]: ownership tidak terkonfirmasi.")
+                        log(f"  GAGAL suppress [{aid}]: ownership sebelum mutation tidak terkonfirmasi.")
                     continue
                 payload = [
                     [aid],
@@ -589,7 +595,7 @@ def suppress_alarms(
 
 # ---------- Verify (§4.4) ----------
 
-def verify_false_positive(
+def verify_disposition(
     base_url: str,
     cookie: str,
     ids: list[str],
@@ -599,21 +605,26 @@ def verify_false_positive(
     date_from: str = "",
     date_to: str = "",
     last_days: str = "1",
+    disposition: str = STATUS_FALSE_POSITIVE,
 ) -> tuple[set[str], set[str]]:
-    """Re-fetch tab False Positive, cek ID mana yang beneran pindah.
-    Balikin (verified_ids, missing_ids). date range/last_days HARUS sama kayak
-    fetch/close biar alarm yang di range beda nggak ke-anggap missing (false-negative)."""
+    """Re-fetch tab disposition, cek ID mana yang beneran pindah."""
     if not ids:
         return (set(), set())
-    fp_alarms = fetch_all_open_alarms(
+    if disposition not in DISPOSITIONS:
+        raise ValueError(f"Disposition tidak valid: {disposition}")
+    moved_alarms = fetch_all_open_alarms(
         base_url, cookie, shift_time, page_size=page_size,
-        status=STATUS_FALSE_POSITIVE, log=None,
+        status=disposition, log=None,
         date_from=date_from, date_to=date_to, last_days=last_days,
     )
-    fp_ids = {str(a.get("_id")) for a in fp_alarms}
+    moved_ids = {str(a.get("_id")) for a in moved_alarms}
     want = {str(i) for i in ids}
-    verified = want & fp_ids
-    missing = want - fp_ids
+    verified = want & moved_ids
+    missing = want - moved_ids
     if log and missing:
-        log(f"  WARNING: {len(missing)} ID nggak keliatan di tab FP setelah close: {sorted(missing)}")
+        log(f"  WARNING: {len(missing)} ID nggak keliatan di tab {disposition}: {sorted(missing)}")
     return (verified, missing)
+
+
+def verify_false_positive(*args, **kwargs) -> tuple[set[str], set[str]]:
+    return verify_disposition(*args, **kwargs, disposition=STATUS_FALSE_POSITIVE)

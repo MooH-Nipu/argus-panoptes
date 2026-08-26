@@ -63,6 +63,7 @@ PROTECT_FIELDS = [
     "alarm_name_equals",
     "alarm_name_contains",
 ]
+WHITELIST_DISPOSITIONS = ("False Positive", "Exclusion")
 
 
 def _read_yaml(path: str) -> Any:
@@ -123,6 +124,15 @@ def _clean_rule(rule: dict[str, Any], allowed_fields: list[str]) -> dict[str, An
     return cleaned
 
 
+def clean_whitelist_rule(rule: dict[str, Any]) -> dict[str, Any]:
+    cleaned = _clean_rule(rule, WHITELIST_FIELDS)
+    disposition = str(rule.get("disposition", "False Positive")).strip()
+    if disposition not in WHITELIST_DISPOSITIONS:
+        raise ValueError("Disposition whitelist tidak valid.")
+    cleaned["disposition"] = disposition
+    return cleaned
+
+
 def load_whitelist() -> list[dict[str, Any]]:
     data = _read_yaml(WHITELIST_PATH) or {}
     rules = data.get("whitelist") if isinstance(data, dict) else None
@@ -148,7 +158,7 @@ def save_protect(rules: list[dict[str, Any]]) -> None:
 def add_whitelist_rule(rule: dict[str, Any]) -> None:
     with _CONFIG_LOCK:
         rules = load_whitelist()
-        rules.append(_clean_rule(rule, WHITELIST_FIELDS))
+        rules.append(clean_whitelist_rule(rule))
         save_whitelist(rules)
 
 
@@ -157,7 +167,7 @@ def update_whitelist_rule(index: int, rule: dict[str, Any]) -> None:
         rules = load_whitelist()
         if not 0 <= index < len(rules):
             raise IndexError("Index rule whitelist di luar jangkauan.")
-        rules[index] = _clean_rule(rule, WHITELIST_FIELDS)
+        rules[index] = clean_whitelist_rule(rule)
         save_whitelist(rules)
 
 

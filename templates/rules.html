@@ -72,7 +72,7 @@
   </header>
 
   <div class="wrap">
-    <div class="policy"><strong>Whitelist mengikuti keputusan operator.</strong> Bot tidak menilai ulang nama alarm. Rule tersimpan dianggap false positive terverifikasi; protect list tetap menang jika dua rule match.</div>
+    <div class="policy"><strong>Rule mengikuti keputusan operator.</strong> Bot tidak menilai ulang disposition pilihan. Protect list tetap menang jika rule protect dan automation sama-sama match.</div>
     {% if error %}<div id="errBox">{{ error }}</div>{% endif %}
 
     <!-- ===== PROTECT LIST ===== -->
@@ -137,18 +137,17 @@
 
     <!-- ===== WHITELIST ===== -->
     <div class="card wl">
-      <h2>Whitelist (Known False Positive)</h2>
+      <h2>Whitelist Automation Rules</h2>
       <p class="desc">
-        Alarm yang match di sini akan <strong>di-close otomatis</strong> sebagai
-        "False Positive" dengan reason yang tertera. Cuma diproses kalau nggak
-        ke-protect duluan.
+        Alarm yang match akan dipindah ke disposition pilihan: <strong>False Positive</strong>
+        atau <strong>Exclusion</strong>. Cuma diproses kalau nggak ke-protect duluan.
       </p>
 
       <table>
         <thead>
           <tr>
             {% for f in whitelist_fields %}<th>{{ f }}</th>{% endfor %}
-            <th>Reason</th><th></th>
+            <th>Disposition</th><th>Reason</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -158,6 +157,7 @@
               {% for f in whitelist_fields %}
               <td class="field">{% if rule.get(f) %}<span class="val">{{ rule[f] }}</span>{% else %}&mdash;{% endif %}</td>
               {% endfor %}
+              <td>{{ rule.get('disposition', 'False Positive') }}</td>
               <td>{{ rule.reason }}</td>
               <td>
                 <form method="post" action="{{ url_for('delete_whitelist', index=loop.index0) }}"
@@ -169,7 +169,7 @@
             </tr>
             {% endfor %}
           {% else %}
-            <tr><td colspan="{{ whitelist_fields|length + 2 }}" class="empty">Belum ada rule whitelist.</td></tr>
+            <tr><td colspan="{{ whitelist_fields|length + 3 }}" class="empty">Belum ada rule whitelist.</td></tr>
           {% endif %}
         </tbody>
       </table>
@@ -184,14 +184,22 @@
           </div>
           {% endfor %}
           <div>
+            <label>Disposition *</label>
+            <select name="disposition" required>
+              {% for disposition in whitelist_dispositions %}
+              <option value="{{ disposition }}">{{ disposition }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
             <label>Reason *</label>
-            <input type="text" name="reason" placeholder="Alasan close (jadi reason di upstream)" required>
+            <input type="text" name="reason" placeholder="Reason yang dikirim ke upstream" required>
           </div>
           <div style="flex:0 0 auto;">
             <button type="submit" class="btn-add">+ Tambah Whitelist</button>
           </div>
         </div>
-        <p class="note">Isi salah satu atau kombinasi field. Kalau lebih dari satu field diisi, semua harus cocok (AND).</p>
+        <p class="note">Field dalam satu rule memakai AND. Rule lama tanpa disposition tetap dianggap False Positive.</p>
       </form>
     </div>
   </div>

@@ -17,6 +17,31 @@ class StartSettingsValidationTests(unittest.TestCase):
 
         self.assertEqual(cleaned["client_equals"], "DP-TASPEN")
 
+    def test_whitelist_accepts_exclusion_disposition(self) -> None:
+        cleaned = app.cfg.clean_whitelist_rule({
+            "alarm_name_equals": "Alarm A",
+            "disposition": "Exclusion",
+            "reason": "Already ticketed",
+        })
+
+        self.assertEqual(cleaned["disposition"], "Exclusion")
+
+    def test_whitelist_defaults_to_false_positive(self) -> None:
+        cleaned = app.cfg.clean_whitelist_rule({
+            "alarm_name_equals": "Alarm A",
+            "reason": "Known FP",
+        })
+
+        self.assertEqual(cleaned["disposition"], "False Positive")
+
+    def test_whitelist_rejects_unknown_disposition(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Disposition"):
+            app.cfg.clean_whitelist_rule({
+                "alarm_name_equals": "Alarm A",
+                "disposition": "Delete",
+                "reason": "Nope",
+            })
+
     def test_rejects_unbounded_and_malformed_settings(self) -> None:
         invalid = {
             "shift_time": "garbage",
@@ -48,6 +73,47 @@ class StartSettingsValidationTests(unittest.TestCase):
         self.assertEqual(settings["max_close_per_cycle"], 25)
         self.assertTrue(settings["protect_high_severity"])
         self.assertTrue(settings["dry_run"])
+
+
+class CycleDispositionTests(unittest.TestCase):
+    def test_exclusion_uses_exclusion_verification_without_suppress(self) -> None:
+        bot = app.BotState()
+        bot.base_url = "https://upstream.test"
+        bot.username = "analyst"
+        alarm = {
+            "_id": "A",
+            "alarm_name": "Alarm A",
+            "client": "PAC",
+            "severity": "medium",
+            "email": "analyst",
+        }
+        rule = {
+            "alarm_name_equals": "Alarm A",
+            "client_equals": "PAC",
+            "disposition": "Exclusion",
+            "reason": "Already ticketed",
+        }
+        with patch.object(app.cfg, "load_whitelist", return_value=[rule]), patch.object(
+            app.cfg, "load_protect", return_value=[]
+        ), patch.object(app.core, "fetch_all_open_alarms", return_value=[alarm]), patch.object(
+            app.core, "close_alarms", return_value={"A"}
+        ) as close, patch.object(
+            app.core, "verify_disposition", return_value=({"A"}, set())
+        ) as verify, patch.object(app.core, "suppress_alarms") as suppress:
+            app._run_one_cycle(
+                bot,
+                "cookie",
+                app.cfg.SHIFT_OPTIONS[0],
+                100,
+                False,
+                10,
+                dry_run=False,
+                enable_suppress_fallback=True,
+            )
+
+        self.assertEqual(close.call_args.kwargs["disposition"], "Exclusion")
+        self.assertEqual(verify.call_args.kwargs["disposition"], "Exclusion")
+        suppress.assert_not_called()
 
 
 class WebSecurityTests(unittest.TestCase):
@@ -153,6 +219,42 @@ class WebSecurityTests(unittest.TestCase):
 
         self.assertNotIn("expired", app.RUNNING_BOTS)
         self.assertEqual(bot.upstream_cookie, "")
+
+    def test_rules_ui_offers_exclusion_disposition(self) -> None:
+        self.csrf()
+        with self.client.session_transaction() as session:
+            sid = session["sid"]
+            session["username"] = "analyst"
+        bot = app.BotState()
+        bot.upstream_cookie = "token"
+        app.RUNNING_BOTS[sid] = bot
+
+        response = self.client.get("/rules")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'name="disposition"', response.data)
+        self.assertIn(b'Exclusion', response.data)
+
+    def test_whitelist_post_passes_exclusion_disposition(self) -> None:
+        token = self.csrf()
+        with self.client.session_transaction() as session:
+            sid = session["sid"]
+            session["username"] = "analyst"
+        bot = app.BotState()
+        bot.upstream_cookie = "token"
+        app.RUNNING_BOTS[sid] = bot
+
+        with patch.object(app.cfg, "add_whitelist_rule") as add_rule:
+            response = self.client.post("/rules/whitelist/add", data={
+                "csrf_token": token,
+                "alarm_name_equals": "Alarm A",
+                "client_equals": "PAC",
+                "disposition": "Exclusion",
+                "reason": "Already ticketed",
+            })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(add_rule.call_args.args[0]["disposition"], "Exclusion")
 
     def test_running_bot_rejects_start_without_saving_settings(self) -> None:
         token = self.csrf()

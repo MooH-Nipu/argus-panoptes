@@ -390,7 +390,7 @@ def _run_one_cycle(
     # Field `email` di alarm = email peng-take (kosong kalau belum di-take).
     # Bandingin sama username login (yang juga email) buat tau "ke-take sendiri".
     my_email = core._norm(bot.username)
-    to_close: dict[str, list[str]] = {}
+    to_close: dict[tuple[str, str], list[str]] = {}
     skip_take_ids: set[str] = set()
     n_skip = 0
     n_leave = 0
@@ -399,7 +399,10 @@ def _run_one_cycle(
         action, reason = core.evaluate_alarm(alarm, whitelist, protect, protect_high)
         aid = str(alarm.get("_id"))
         name = alarm.get("alarm_name", "?")
-        if action == "close":
+        if action in {"close", "exclude"}:
+            disposition = (
+                core.STATUS_EXCLUSION if action == "exclude" else core.STATUS_FALSE_POSITIVE
+            )
             taker_email = core._norm(alarm.get("email"))
             # Di-take analyst lain -> JANGAN sentuh (bisa nabrak investigasi orang).
             if taker_email and taker_email != my_email:
@@ -409,7 +412,7 @@ def _run_one_cycle(
             # Di-take sendiri -> tandai skip-take (take ulang = gagal non-RSC).
             if taker_email and taker_email == my_email:
                 skip_take_ids.add(aid)
-            to_close.setdefault(reason, []).append(aid)
+            to_close.setdefault((disposition, reason), []).append(aid)
         elif action == "skip":
             n_skip += 1
             bot.log(f"SKIP [{aid}] {name} — {reason}")
@@ -422,19 +425,19 @@ def _run_one_cycle(
     # sesuai urutan alarm datang; sisanya ditunda ke sapu berikutnya.
     deferred = 0
     if max_close and max_close > 0 and total_close > max_close:
-        trimmed: dict[str, list[str]] = {}
+        trimmed: dict[tuple[str, str], list[str]] = {}
         budget = max_close
-        for reason, ids in to_close.items():
+        for key, ids in to_close.items():
             if budget <= 0:
                 break
             take = ids[:budget]
-            trimmed[reason] = take
+            trimmed[key] = take
             budget -= len(take)
         deferred = total_close - max_close
         to_close = trimmed
         total_close = max_close
 
-    bot.log(f"Evaluasi: {total_close} akan di-close, {n_skip} di-skip, "
+    bot.log(f"Evaluasi: {total_close} akan dimutasi, {n_skip} di-skip, "
             f"{n_leave} dibiarkan (manual)"
             + (f", {n_other} ke-take analyst lain" if n_other else "")
             + (f" ({len(skip_take_ids)} di antaranya ke-take sendiri, skip take)" if skip_take_ids else "")
@@ -445,8 +448,11 @@ def _run_one_cycle(
         bot.stats["left"] += n_leave
 
     if dry_run:
-        for reason, ids in to_close.items():
-            bot.log(f'DRY RUN — {len(ids)} kandidat, reason: "{reason}" IDs={ids}')
+        for (disposition, reason), ids in to_close.items():
+            bot.log(
+                f'DRY RUN — {len(ids)} kandidat {disposition}, '
+                f'reason: "{reason}" IDs={ids}'
+            )
         return
 
     # Close per kelompok reason, lalu verifikasi.
@@ -464,29 +470,34 @@ def _run_one_cycle(
             for alarm in refreshed
         )
 
-    for reason, ids in to_close.items():
+    for (disposition, reason), ids in to_close.items():
         # Stop dicek antar-grup — kalau user klik Stop, jangan mulai grup baru.
         if should_stop():
             bot.log("Stop — siklus dihentikan sebelum grup berikutnya.")
             break
-        bot.log(f"Close {len(ids)} alarm, reason: \"{reason}\"")
+        bot.log(f"Set {len(ids)} alarm ke {disposition}, reason: \"{reason}\"")
         submitted = core.close_alarms(
             bot.base_url, cookie, ids, reason,
             log=bot.log, should_stop=should_stop,
             skip_take_ids=skip_take_ids, confirm_owner=confirm_owner,
+            disposition=disposition,
         )
-        verified, missing = core.verify_false_positive(
+        verified, missing = core.verify_disposition(
             bot.base_url, cookie, sorted(submitted), shift, page_size=page_size, log=bot.log,
             date_from=date_from, date_to=date_to, last_days=last_days,
+            disposition=disposition,
         )
-        bot.log(f"  Verified {len(verified)}/{len(submitted)} pindah ke tab FP.")
+        bot.log(
+            f"  Verified {len(verified)}/{len(submitted)} pindah ke tab {disposition}."
+        )
 
         # Fallback: alarm yang silent-fail di jalur FP 3-argumen (biasanya alarm
         # grup / punya "Similar Alerts") coba lewat jalur suppress 4-argumen.
         # Keterkaitan grup nggak keliatan di fetch, jadi kita nggak deteksi di
         # depan — pakai `missing` dari verify sebagai sinyal butuh suppress.
-        # Skip fallback kalau lagi stop (biar Stop langsung ngefek).
-        if missing and enable_suppress_fallback and not should_stop():
+        # Suppress fallback hanya valid untuk jalur False Positive.
+        use_suppress = disposition == core.STATUS_FALSE_POSITIVE and enable_suppress_fallback
+        if missing and use_suppress and not should_stop():
             bot.log("  Tunggu 2s lalu verifikasi ulang sebelum fallback suppress.")
             if bot.stop_event.wait(2):
                 break
@@ -495,7 +506,7 @@ def _run_one_cycle(
                 log=bot.log, date_from=date_from, date_to=date_to, last_days=last_days,
             )
             verified |= verified_retry
-        if missing and enable_suppress_fallback and not should_stop():
+        if missing and use_suppress and not should_stop():
             miss_ids = sorted(missing)
             bot.log(f"  {len(miss_ids)} alarm nggak pindah — coba jalur suppress.")
             core.suppress_alarms(
@@ -599,6 +610,7 @@ def rules():
         whitelist=cfg.load_whitelist(),
         protect=cfg.load_protect(),
         whitelist_fields=cfg.WHITELIST_FIELDS,
+        whitelist_dispositions=cfg.WHITELIST_DISPOSITIONS,
         protect_fields=cfg.PROTECT_FIELDS,
     )
 
@@ -606,7 +618,9 @@ def rules():
 @app.route("/rules/whitelist/add", methods=["POST"])
 @login_required
 def add_whitelist():
-    return _handle_rule_add(cfg.WHITELIST_FIELDS, cfg.add_whitelist_rule)
+    return _handle_rule_add(
+        cfg.WHITELIST_FIELDS, cfg.add_whitelist_rule, extra_fields=("disposition",)
+    )
 
 
 @app.route("/rules/whitelist/delete/<int:index>", methods=["POST"])
@@ -635,8 +649,8 @@ def delete_protect(index: int):
     return redirect(url_for("rules"))
 
 
-def _handle_rule_add(fields: list[str], add_fn) -> Any:
-    rule = {f: request.form.get(f, "") for f in fields}
+def _handle_rule_add(fields: list[str], add_fn, extra_fields: tuple[str, ...] = ()) -> Any:
+    rule = {f: request.form.get(f, "") for f in [*fields, *extra_fields]}
     rule["reason"] = request.form.get("reason", "")
     try:
         add_fn(rule)
@@ -647,6 +661,7 @@ def _handle_rule_add(fields: list[str], add_fn) -> Any:
             whitelist=cfg.load_whitelist(),
             protect=cfg.load_protect(),
             whitelist_fields=cfg.WHITELIST_FIELDS,
+            whitelist_dispositions=cfg.WHITELIST_DISPOSITIONS,
             protect_fields=cfg.PROTECT_FIELDS,
             error=str(exc),
         )
