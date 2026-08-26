@@ -65,7 +65,7 @@
     <div style="display:flex; align-items:center; gap:16px;">
       <a href="{{ url_for('index') }}">&larr; Kembali ke Dashboard</a>
       <form method="post" action="{{ url_for('logout') }}" style="margin:0;">
-        {{ csrf_input() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" style="background:#7f1d1d; color:#fecaca; padding:5px 12px; font-size:12px;">Logout</button>
       </form>
     </div>
@@ -102,7 +102,7 @@
               <td>
                 <form method="post" action="{{ url_for('delete_protect', index=loop.index0) }}"
                       onsubmit="return confirm('Hapus rule protect ini?');">
-                  {{ csrf_input() }}
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn-del">Hapus</button>
                 </form>
               </td>
@@ -115,7 +115,7 @@
       </table>
 
       <form method="post" action="{{ url_for('add_protect') }}">
-        {{ csrf_input() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="addrow">
           {% for f in protect_fields %}
           <div>
@@ -162,7 +162,7 @@
               <td>
                 <form method="post" action="{{ url_for('delete_whitelist', index=loop.index0) }}"
                       onsubmit="return confirm('Hapus rule whitelist ini?');">
-                  {{ csrf_input() }}
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn-del">Hapus</button>
                 </form>
               </td>
@@ -175,7 +175,7 @@
       </table>
 
       <form method="post" action="{{ url_for('add_whitelist') }}">
-        {{ csrf_input() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="addrow">
           {% for f in whitelist_fields %}
           <div>

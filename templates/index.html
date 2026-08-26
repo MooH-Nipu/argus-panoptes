@@ -20,7 +20,7 @@
   <div class="actions">
     <span class="identity">{{ username }}{% if base_url %} · {{ base_url }}{% endif %}</span>
     <a class="button secondary" href="{{ url_for('rules') }}">Rules</a>
-    <form method="post" action="{{ url_for('logout') }}">{{ csrf_input() }}<button class="danger" type="submit">Logout</button></form>
+    <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger" type="submit">Logout</button></form>
   </div>
 </header>
 <main class="wrap">
@@ -30,7 +30,7 @@
       <div class="eyebrow">Run configuration</div>
       <h2 id="control-title">Kontrol bot <span class="mode" id="modeBadge">dry run default</span></h2>
       <form id="startForm">
-        {{ csrf_input() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="row">
           <div class="field"><label for="date_from">Dari tanggal</label><input type="date" name="date_from" id="date_from" value="{{ settings.date_from }}"></div>
           <div class="field"><label for="date_to">Sampai tanggal</label><input type="date" name="date_to" id="date_to" value="{{ settings.date_to }}"></div>

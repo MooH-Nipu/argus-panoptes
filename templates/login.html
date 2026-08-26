@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Login — ALPHA TIDAK KEREN TITIK</title>
+  <title>Login — Argus Panoptes</title>
   <style>
     :root {
       color-scheme: dark;
@@ -136,7 +136,7 @@
       {% endif %}
 
       <form method="post" action="{{ url_for('login') }}">
-        {{ csrf_input() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="field">
           <label for="base_url">Base URL upstream</label>
           <input type="text" id="base_url" name="base_url" placeholder="https://upstream.internal"

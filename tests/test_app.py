@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+import httpx
+
 import app
 
 
@@ -76,6 +78,26 @@ class WebSecurityTests(unittest.TestCase):
             bot = app.RUNNING_BOTS[session["sid"]]
         self.assertEqual(bot.upstream_cookie, "SECRET_UPSTREAM_TOKEN")
 
+    def test_upstream_network_failure_returns_login_error(self) -> None:
+        token = self.csrf()
+        upstream_request = httpx.Request("POST", "https://upstream.test/login")
+        with patch.dict("os.environ", {"ARGUS_ALLOWED_ORIGINS": "https://upstream.test"}), patch.object(
+            app.core, "login",
+            side_effect=httpx.ConnectError("upstream unavailable", request=upstream_request),
+        ):
+            response = self.client.post(
+                "/login",
+                data={
+                    "csrf_token": token,
+                    "base_url": "https://upstream.test",
+                    "username": "analyst",
+                    "password": "password",
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Login gagal", response.data)
+        self.assertNotIn(b"Traceback", response.data)
+
     def test_status_requires_login(self) -> None:
         response = self.client.get("/status")
         self.assertEqual(response.status_code, 302)
@@ -84,6 +106,8 @@ class WebSecurityTests(unittest.TestCase):
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json, {"ok": True})
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(response.headers["X-Frame-Options"], "DENY")
 
 
 if __name__ == "__main__":

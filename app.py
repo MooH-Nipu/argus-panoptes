@@ -25,6 +25,7 @@ from functools import wraps
 from typing import Any, Optional
 from urllib.parse import urlparse
 
+import httpx
 from flask import (
     Flask,
     jsonify,
@@ -119,12 +120,6 @@ def _csrf_token() -> str:
     return token
 
 
-def _csrf_input() -> str:
-    from markupsafe import Markup
-
-    return Markup(f'<input type="hidden" name="csrf_token" value="{_csrf_token()}">')
-
-
 def validate_base_url(value: str) -> str:
     parsed = urlparse(value.strip())
     if parsed.scheme != "https" or not parsed.hostname:
@@ -180,7 +175,7 @@ def validate_start_settings(form: Any, defaults: dict[str, Any]) -> dict[str, An
     }
 
 
-app.jinja_env.globals.update(csrf_token=_csrf_token, csrf_input=_csrf_input)
+app.jinja_env.globals.update(csrf_token=_csrf_token)
 
 
 @app.before_request
@@ -192,6 +187,21 @@ def verify_csrf():
     if not expected or not secrets.compare_digest(supplied, expected):
         return jsonify({"ok": False, "error": "CSRF token tidak valid. Refresh halaman."}), 403
     return None
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'"
+    )
+    if request.is_secure:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    return response
 
 
 # ---------- Auth level-aplikasi ----------
@@ -225,13 +235,15 @@ def login():
     try:
         base_url = validate_base_url(base_url)
         cookie = core.login(base_url, username, password)
-    except (ValueError, core.LoginError) as exc:
-        return render_template("login.html", error=f"Login gagal: {exc}", base_url=base_url, username=username)
-    except Exception as exc:
-        return render_template("login.html", error=f"Login error: {exc}", base_url=base_url, username=username)
+    except (ValueError, core.LoginError, core.ArgusError, httpx.HTTPError) as exc:
+        return render_template(
+            "login.html", error=f"Login gagal: {exc}", base_url=base_url,
+            username=username,
+        )
 
     bot = _get_bot(create=True)
-    assert bot is not None
+    if bot is None:
+        raise RuntimeError("Gagal membuat state sesi lokal.")
     bot.upstream_cookie = cookie
     bot.base_url = base_url.rstrip("/")
     bot.username = username
@@ -306,7 +318,7 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
         bot.log(f"AUTH ERROR: {exc} Login ulang diperlukan.")
     except core.ArgusError as exc:
         bot.log(f"ERROR siklus: {exc}")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - worker must fail closed and reset state
         bot.log(f"ERROR tak terduga: {exc}")
     finally:
         bot.log("Bot berhenti.")
@@ -503,7 +515,8 @@ def index():
 @login_required
 def start():
     bot = _get_bot(create=True)
-    assert bot is not None
+    if bot is None:
+        raise RuntimeError("Gagal membuat state sesi lokal.")
     cookie = bot.upstream_cookie
     base_url = bot.base_url
     if not cookie or not base_url:
