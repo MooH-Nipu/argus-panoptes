@@ -62,24 +62,24 @@ class ClaimFallbackTests(unittest.TestCase):
         try:
             core._take_alarm = lambda client, base, cookie, aid: claimed.add(aid)
             core._call_server_action = lambda *args, **kwargs: {"ok": True}
-            sent = core.close_alarms(
+            submitted = core.close_alarms(
                 "https://upstream.test", "c", ["A"], "reason", skip_take_ids=claimed
             )
         finally:
             core._take_alarm = original_take
             core._call_server_action = original_call
 
-        self.assertEqual(sent, 1)
+        self.assertEqual(submitted, {"A"})
         self.assertEqual(claimed, {"A"})
 
     def test_close_aborts_when_claim_owner_is_not_confirmed(self) -> None:
-        submitted: list[object] = []
+        calls: list[object] = []
         original_take = core._take_alarm
         original_call = core._call_server_action
         try:
             core._take_alarm = lambda *args: None
-            core._call_server_action = lambda *args, **kwargs: submitted.append(args[4])
-            sent = core.close_alarms(
+            core._call_server_action = lambda *args, **kwargs: calls.append(args[4])
+            submitted = core.close_alarms(
                 "https://upstream.test",
                 "c",
                 ["A"],
@@ -90,8 +90,29 @@ class ClaimFallbackTests(unittest.TestCase):
             core._take_alarm = original_take
             core._call_server_action = original_call
 
-        self.assertEqual(sent, 0)
-        self.assertEqual(submitted, [])
+        self.assertEqual(submitted, set())
+        self.assertEqual(calls, [])
+
+    def test_suppress_aborts_when_claim_owner_is_not_confirmed(self) -> None:
+        calls: list[object] = []
+        original_take = core._take_alarm
+        original_call = core._call_server_action
+        try:
+            core._take_alarm = lambda *args: None
+            core._call_server_action = lambda *args, **kwargs: calls.append(args[4])
+            submitted = core.suppress_alarms(
+                "https://upstream.test",
+                "c",
+                ["A"],
+                "reason",
+                confirm_owner=lambda aid: False,
+            )
+        finally:
+            core._take_alarm = original_take
+            core._call_server_action = original_call
+
+        self.assertEqual(submitted, set())
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":

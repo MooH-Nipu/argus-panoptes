@@ -44,12 +44,16 @@ app.secret_key = secrets.token_hex(32)  # sesi Flask lokal, regenerate tiap star
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Strict",
+    MAX_CONTENT_LENGTH=16 * 1024,
 )
 
 MAX_LOG_LINES = 500
 MIN_POLL_INTERVAL = 30
 MAX_POLL_INTERVAL = 86_400
 MAX_CLOSE_LIMIT = 500
+SESSION_IDLE_TTL = 8 * 60 * 60
+LOGIN_WINDOW = 60
+LOGIN_LIMIT = 5
 
 
 class BotState:
@@ -64,6 +68,7 @@ class BotState:
         self.base_url = ""
         self.username = ""
         self.upstream_cookie = ""
+        self.last_activity = time.time()
         self.last_cycle: str = ""
         # Epoch (detik) kapan siklus berikutnya mulai. 0 = lagi nggak cooldown
         # (bot lagi kerja / belum jalan). Dipakai UI buat hitung mundur.
@@ -94,6 +99,8 @@ class BotState:
 # Bot per session id. Lokal jadi praktis 1 user, tapi tetap keyed by session.
 RUNNING_BOTS: dict[str, BotState] = {}
 _BOTS_LOCK = threading.Lock()
+_LOGIN_ATTEMPTS: dict[tuple[str, str], deque[float]] = {}
+_LOGIN_LOCK = threading.Lock()
 
 
 def _get_sid() -> str:
@@ -106,10 +113,29 @@ def _get_bot(create: bool = False) -> Optional[BotState]:
     sid = _get_sid()
     with _BOTS_LOCK:
         bot = RUNNING_BOTS.get(sid)
+        if bot and not bot.running and time.time() - bot.last_activity > SESSION_IDLE_TTL:
+            bot.upstream_cookie = ""
+            RUNNING_BOTS.pop(sid, None)
+            bot = None
         if bot is None and create:
             bot = BotState()
             RUNNING_BOTS[sid] = bot
+        if bot:
+            bot.last_activity = time.time()
         return bot
+
+
+def _login_allowed(username: str) -> bool:
+    key = (request.remote_addr or "unknown", username.casefold())
+    now = time.time()
+    with _LOGIN_LOCK:
+        attempts = _LOGIN_ATTEMPTS.setdefault(key, deque())
+        while attempts and now - attempts[0] >= LOGIN_WINDOW:
+            attempts.popleft()
+        if len(attempts) >= LOGIN_LIMIT:
+            return False
+        attempts.append(now)
+        return True
 
 
 def _csrf_token() -> str:
@@ -231,6 +257,8 @@ def login():
     password = request.form.get("password") or ""
     if not base_url or not username or not password:
         return render_template("login.html", error="Base URL, username, dan password wajib diisi.")
+    if not _login_allowed(username):
+        return render_template("login.html", error="Terlalu banyak percobaan login. Coba lagi satu menit."), 429
 
     try:
         base_url = validate_base_url(base_url)
@@ -442,16 +470,16 @@ def _run_one_cycle(
             bot.log("Stop — siklus dihentikan sebelum grup berikutnya.")
             break
         bot.log(f"Close {len(ids)} alarm, reason: \"{reason}\"")
-        sent = core.close_alarms(
+        submitted = core.close_alarms(
             bot.base_url, cookie, ids, reason,
             log=bot.log, should_stop=should_stop,
             skip_take_ids=skip_take_ids, confirm_owner=confirm_owner,
         )
         verified, missing = core.verify_false_positive(
-            bot.base_url, cookie, ids, shift, page_size=page_size, log=bot.log,
+            bot.base_url, cookie, sorted(submitted), shift, page_size=page_size, log=bot.log,
             date_from=date_from, date_to=date_to, last_days=last_days,
         )
-        bot.log(f"  Verified {len(verified)}/{sent} pindah ke tab FP.")
+        bot.log(f"  Verified {len(verified)}/{len(submitted)} pindah ke tab FP.")
 
         # Fallback: alarm yang silent-fail di jalur FP 3-argumen (biasanya alarm
         # grup / punya "Similar Alerts") coba lewat jalur suppress 4-argumen.
@@ -474,6 +502,7 @@ def _run_one_cycle(
                 bot.base_url, cookie, miss_ids, reason, log=bot.log,
                 should_stop=should_stop,
                 skip_take_ids=skip_take_ids,
+                confirm_owner=confirm_owner,
             )
             verified2, missing2 = core.verify_false_positive(
                 bot.base_url, cookie, miss_ids, shift, page_size=page_size, log=bot.log,
@@ -526,11 +555,10 @@ def start():
         settings = validate_start_settings(request.form, cfg.load_settings())
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
-    cfg.save_settings(settings)
-
     with bot.lock:
         if bot.running:
             return jsonify({"ok": False, "error": "Bot sudah jalan."}), 400
+        cfg.save_settings(settings)
         bot.stop_event.clear()
         bot.running = True
         bot.logs.clear()

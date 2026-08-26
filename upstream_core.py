@@ -429,7 +429,7 @@ def close_alarms(
     should_stop: Optional[Callable[[], bool]] = None,
     skip_take_ids: Optional[set[str]] = None,
     confirm_owner: Optional[Callable[[str], bool]] = None,
-) -> int:
+) -> set[str]:
     """Close alarm PER-ALARM, 2 langkah: TAKE dulu, baru set False Positive (§3.3).
     Alur ini confirmed dari capture DevTools + docx: set FP tanpa take = silent fail.
 
@@ -444,16 +444,16 @@ def close_alarms(
     Buat ID ini, langkah take di-SKIP (take ulang alarm yang udah ke-take = server
     balik response non-RSC = gagal). Langsung set FP aja."""
     if not ids:
-        return 0
+        return set()
     reason = (reason or "")[:REASON_MAX_LEN]
     if skip_take_ids is None:
         skip_take_ids = set()
-    sent = 0
+    submitted: set[str] = set()
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
         for aid in ids:
             if should_stop and should_stop():
                 if log:
-                    log(f"  Stop — close dihentikan ({sent}/{len(ids)} terkirim).")
+                    log(f"  Stop — close dihentikan ({len(submitted)}/{len(ids)} terkirim).")
                 break
             try:
                 # Langkah 1: take/claim — SKIP kalau udah ke-take sendiri.
@@ -473,13 +473,13 @@ def close_alarms(
                     client, base_url, cookie, ACTION_CLOSE, payload,
                     referer_path=ALARM_PATH, retry_transient=False,
                 )
-                sent += 1
+                submitted.add(aid)
                 if log:
-                    log(f"  take+FP [{aid}] ok ({sent}/{len(ids)}).")
+                    log(f"  take+FP [{aid}] ok ({len(submitted)}/{len(ids)}).")
             except ArgusError as exc:
                 if log:
                     log(f"  GAGAL [{aid}]: {exc}")
-    return sent
+    return submitted
 
 
 # ---------- Suppress (alarm grup / similar-alerts, §3.3) ----------
@@ -511,7 +511,8 @@ def suppress_alarms(
     log: Optional[Callable[[str], None]] = None,
     should_stop: Optional[Callable[[], bool]] = None,
     skip_take_ids: Optional[set[str]] = None,
-) -> int:
+    confirm_owner: Optional[Callable[[str], bool]] = None,
+) -> set[str]:
     """Close alarm lewat jalur SUPPRESS (format 4-argumen). Dipakai buat alarm
     yang silent-fail di jalur FP 3-argumen biasa — yaitu alarm grup / punya
     "Similar Alerts" (§3.3).
@@ -527,14 +528,14 @@ def suppress_alarms(
     ngelompokin di depan. Tiap alarm di-suppress sendiri — arg0 1 ID, arg3 2
     config (src_ip + dest_ip). Balikin jumlah yang berhasil dikirim."""
     if not ids:
-        return 0
+        return set()
     reason = (reason or "")[:REASON_MAX_LEN]
-    sent = 0
+    submitted: set[str] = set()
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
         for aid in ids:
             if should_stop and should_stop():
                 if log:
-                    log(f"  Stop — suppress dihentikan ({sent}/{len(ids)} terkirim).")
+                    log(f"  Stop — suppress dihentikan ({len(submitted)}/{len(ids)} terkirim).")
                 break
             try:
                 # Take dulu (sama kayak jalur FP — tanpa ini set status silent-fail).
@@ -542,8 +543,16 @@ def suppress_alarms(
                 # take ulang -> parse error). Langsung submit suppress aja.
                 if not (skip_take_ids and aid in skip_take_ids):
                     _take_alarm(client, base_url, cookie, aid)
+                    if confirm_owner and not confirm_owner(aid):
+                        if log:
+                            log(f"  GAGAL suppress [{aid}]: ownership setelah take tidak terkonfirmasi.")
+                        continue
                     if skip_take_ids is not None:
                         skip_take_ids.add(aid)
+                elif confirm_owner and not confirm_owner(aid):
+                    if log:
+                        log(f"  GAGAL suppress [{aid}]: ownership tidak terkonfirmasi.")
+                    continue
                 payload = [
                     [aid],
                     WHITELIST_CATEGORY,
@@ -554,13 +563,13 @@ def suppress_alarms(
                     client, base_url, cookie, ACTION_CLOSE, payload,
                     referer_path=ALARM_PATH, retry_transient=False,
                 )
-                sent += 1
+                submitted.add(aid)
                 if log:
-                    log(f"  suppress [{aid}] ok ({sent}/{len(ids)}).")
+                    log(f"  suppress [{aid}] ok ({len(submitted)}/{len(ids)}).")
             except ArgusError as exc:
                 if log:
                     log(f"  GAGAL suppress [{aid}]: {exc}")
-    return sent
+    return submitted
 
 
 # ---------- Verify (§4.4) ----------

@@ -9,5 +9,4 @@ venv
 .env
 data
 tests
-NOTICE
 README.md

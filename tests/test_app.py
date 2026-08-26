@@ -45,6 +45,7 @@ class StartSettingsValidationTests(unittest.TestCase):
 class WebSecurityTests(unittest.TestCase):
     def setUp(self) -> None:
         app.RUNNING_BOTS.clear()
+        app._LOGIN_ATTEMPTS.clear()
         app.app.config.update(TESTING=True)
         self.client = app.app.test_client()
 
@@ -108,6 +109,65 @@ class WebSecurityTests(unittest.TestCase):
         self.assertEqual(response.json, {"ok": True})
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         self.assertEqual(response.headers["X-Frame-Options"], "DENY")
+
+    def test_login_request_body_is_bounded(self) -> None:
+        token = self.csrf()
+        response = self.client.post(
+            "/login",
+            data={"csrf_token": token, "base_url": "x" * 20_000, "username": "a", "password": "b"},
+        )
+        self.assertEqual(response.status_code, 413)
+
+    def test_login_rate_limit_blocks_sixth_attempt(self) -> None:
+        token = self.csrf()
+        data = {
+            "csrf_token": token,
+            "base_url": "https://upstream.test",
+            "username": "analyst",
+            "password": "wrong",
+        }
+        with patch.dict("os.environ", {"ARGUS_ALLOWED_ORIGINS": "https://upstream.test"}), patch.object(
+            app.core, "login", side_effect=app.core.LoginError("bad credentials"),
+        ):
+            for _ in range(5):
+                self.assertEqual(self.client.post("/login", data=data).status_code, 200)
+            self.assertEqual(self.client.post("/login", data=data).status_code, 429)
+
+    def test_expired_server_session_is_removed(self) -> None:
+        bot = app.BotState()
+        bot.upstream_cookie = "token"
+        bot.last_activity = 0
+        app.RUNNING_BOTS["expired"] = bot
+        with app.app.test_request_context("/status"):
+            app.session["sid"] = "expired"
+            with patch.object(app.time, "time", return_value=app.SESSION_IDLE_TTL + 1):
+                self.assertIsNone(app._get_bot())
+
+        self.assertNotIn("expired", app.RUNNING_BOTS)
+        self.assertEqual(bot.upstream_cookie, "")
+
+    def test_running_bot_rejects_start_without_saving_settings(self) -> None:
+        token = self.csrf()
+        with self.client.session_transaction() as session:
+            sid = session["sid"]
+            session["username"] = "analyst"
+        bot = app.BotState()
+        bot.upstream_cookie = "token"
+        bot.base_url = "https://upstream.test"
+        bot.running = True
+        app.RUNNING_BOTS[sid] = bot
+        data = {
+            "csrf_token": token,
+            "shift_time": app.cfg.SHIFT_OPTIONS[0],
+            "poll_interval_seconds": "30",
+            "max_close_per_cycle": "25",
+            "last_days": "1",
+        }
+        with patch.object(app.cfg, "save_settings") as save:
+            response = self.client.post("/start", data=data)
+
+        self.assertEqual(response.status_code, 400)
+        save.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -39,6 +39,13 @@ From another PC on the same trusted LAN, open `http://<BIND_IP>:<PORT>`.
 
 Default Compose binding is `127.0.0.1`; LAN access requires an explicit `BIND_IP`. Avoid `0.0.0.0` unless exposing every interface is intentional.
 
+Runtime configuration lives in the Compose `config_data` volume. Back it up with:
+
+```bash
+docker compose exec app tar -C /data -czf /tmp/argus-config.tgz .
+docker compose cp app:/tmp/argus-config.tgz ./argus-config.tgz
+```
+
 ## Safety model
 
 - Browser keeps only opaque local session ID. upstream token stays in server memory.

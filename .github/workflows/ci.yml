@@ -24,3 +24,14 @@ jobs:
       - run: python -m compileall -q app.py config_store.py argus_core.py
       - run: pip-audit -r requirements.txt
       - run: ARGUS_ALLOWED_ORIGINS=https://upstream.example.internal docker compose config
+      - run: docker compose build
+        env:
+          ARGUS_ALLOWED_ORIGINS: https://upstream.example.internal
+      - run: docker compose up -d --wait
+        env:
+          ARGUS_ALLOWED_ORIGINS: https://upstream.example.internal
+      - run: curl --fail --silent http://127.0.0.1:5000/health
+      - if: always()
+        run: docker compose logs
+        env:
+          ARGUS_ALLOWED_ORIGINS: https://upstream.example.internal
