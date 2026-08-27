@@ -230,7 +230,10 @@ def validate_start_settings(form: Any, defaults: dict[str, Any]) -> dict[str, An
     }
 
 
-app.jinja_env.globals.update(csrf_token=_csrf_token)
+app.jinja_env.globals.update(
+    csrf_token=_csrf_token,
+    whitelist_rule_version=cfg.whitelist_rule_version,
+)
 
 
 @app.before_request
@@ -659,6 +662,36 @@ def add_whitelist():
     return _handle_rule_add(
         cfg.WHITELIST_FIELDS, cfg.add_whitelist_rule, extra_fields=("disposition",)
     )
+
+
+@app.route("/rules/whitelist/edit/<int:index>", methods=["POST"])
+@login_required
+def edit_whitelist(index: int):
+    rule = {
+        field: request.form.get(field, "")
+        for field in [*cfg.WHITELIST_FIELDS, "disposition"]
+    }
+    rule["reason"] = request.form.get("reason", "")
+    try:
+        cfg.update_whitelist_rule(
+            index,
+            rule,
+            expected_version=request.form.get("expected_version", ""),
+        )
+    except IndexError:
+        return "Rule whitelist tidak ditemukan.", 404
+    except (ValueError, cfg.RuleConflictError) as exc:
+        status = 409 if isinstance(exc, cfg.RuleConflictError) else 400
+        return render_template(
+            "rules.html",
+            whitelist=cfg.load_whitelist(),
+            protect=cfg.load_protect(),
+            whitelist_fields=cfg.WHITELIST_FIELDS,
+            whitelist_dispositions=cfg.WHITELIST_DISPOSITIONS,
+            protect_fields=cfg.PROTECT_FIELDS,
+            error=str(exc),
+        ), status
+    return redirect(url_for("rules"))
 
 
 @app.route("/rules/whitelist/delete/<int:index>", methods=["POST"])

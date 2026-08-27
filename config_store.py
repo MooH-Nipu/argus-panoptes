@@ -6,6 +6,8 @@ Rule di-CRUD by index (list-based) — simpel & cukup buat pemakaian lokal.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import tempfile
 import threading
@@ -19,6 +21,11 @@ SETTINGS_PATH = os.path.join(BASE_DIR, "settings.yaml")
 WHITELIST_PATH = os.path.join(BASE_DIR, "whitelist.yaml")
 PROTECT_PATH = os.path.join(BASE_DIR, "protect_list.yaml")
 _CONFIG_LOCK = threading.RLock()
+
+
+class RuleConflictError(Exception):
+    """Rule berubah sejak form edit dibuka."""
+
 
 # Pilihan shift buat dropdown UI.
 # CATATAN: cuma shift 1 yang CONFIRMED dari reverse-engineering (PROJECT_SPEC §3.2).
@@ -135,6 +142,11 @@ def clean_whitelist_rule(rule: dict[str, Any]) -> dict[str, Any]:
     return cleaned
 
 
+def whitelist_rule_version(rule: dict[str, Any]) -> str:
+    canonical = json.dumps(rule, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def load_whitelist() -> list[dict[str, Any]]:
     data = _read_yaml(WHITELIST_PATH) or {}
     rules = data.get("whitelist") if isinstance(data, dict) else None
@@ -164,11 +176,15 @@ def add_whitelist_rule(rule: dict[str, Any]) -> None:
         save_whitelist(rules)
 
 
-def update_whitelist_rule(index: int, rule: dict[str, Any]) -> None:
+def update_whitelist_rule(
+    index: int, rule: dict[str, Any], *, expected_version: str
+) -> None:
     with _CONFIG_LOCK:
         rules = load_whitelist()
         if not 0 <= index < len(rules):
             raise IndexError("Index rule whitelist di luar jangkauan.")
+        if not expected_version or whitelist_rule_version(rules[index]) != expected_version:
+            raise RuleConflictError("Rule berubah. Refresh halaman sebelum edit ulang.")
         rules[index] = clean_whitelist_rule(rule)
         save_whitelist(rules)
 

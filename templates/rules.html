@@ -46,8 +46,14 @@
     }
     .btn-add { background: #2563eb; color: #fff; }
     .btn-add:hover { background: #1d4ed8; }
+    .btn-edit { display: inline-block; background: #155e75; color: #cffafe; padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
+    .btn-edit:hover { background: #0e7490; }
     .btn-del { background: #7f1d1d; color: #fecaca; padding: 5px 12px; font-size: 12px; }
     .btn-del:hover { background: #991b1b; }
+    .edit-row td { padding: 0 10px 10px; background: #172033; }
+    .edit-rule { padding-top: 8px; }
+    .edit-rule summary { width: max-content; }
+    .edit-rule .addrow { margin-top: 10px; }
     #errBox {
       background: #7f1d1d; color: #fecaca; padding: 10px 12px; border-radius: 6px;
       margin-bottom: 16px; font-size: 13px;
@@ -153,6 +159,7 @@
         <tbody>
           {% if whitelist %}
             {% for rule in whitelist %}
+            {% set rule_index = loop.index0 %}
             <tr>
               {% for f in whitelist_fields %}
               <td class="field">{% if rule.get(f) %}<span class="val">{{ rule[f] }}</span>{% else %}&mdash;{% endif %}</td>
@@ -160,11 +167,45 @@
               <td>{{ rule.get('disposition', 'False Positive') }}</td>
               <td>{{ rule.reason }}</td>
               <td>
-                <form method="post" action="{{ url_for('delete_whitelist', index=loop.index0) }}"
+                <form method="post" action="{{ url_for('delete_whitelist', index=rule_index) }}"
                       onsubmit="return confirm('Hapus rule whitelist ini?');">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn-del">Hapus</button>
                 </form>
+              </td>
+            </tr>
+            <tr class="edit-row">
+              <td colspan="{{ whitelist_fields|length + 3 }}">
+                <details class="edit-rule" id="edit-whitelist-{{ rule_index }}">
+                  <summary class="btn-edit">Edit rule</summary>
+                  <form method="post" action="{{ url_for('edit_whitelist', index=rule_index) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="expected_version" value="{{ whitelist_rule_version(rule) }}">
+                    <div class="addrow">
+                      {% for f in whitelist_fields %}
+                      <div>
+                        <label for="edit-{{ rule_index }}-{{ f }}">{{ f }}</label>
+                        <input type="text" id="edit-{{ rule_index }}-{{ f }}" name="{{ f }}" value="{{ rule.get(f, '') }}">
+                      </div>
+                      {% endfor %}
+                      <div>
+                        <label for="edit-{{ rule_index }}-disposition">Disposition *</label>
+                        <select id="edit-{{ rule_index }}-disposition" name="disposition" required>
+                          {% for disposition in whitelist_dispositions %}
+                          <option value="{{ disposition }}"{% if disposition == rule.get('disposition', 'False Positive') %} selected{% endif %}>{{ disposition }}</option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                      <div>
+                        <label for="edit-{{ rule_index }}-reason">Reason *</label>
+                        <input type="text" id="edit-{{ rule_index }}-reason" name="reason" value="{{ rule.reason }}" required>
+                      </div>
+                      <div style="flex:0 0 auto;">
+                        <button type="submit" class="btn-add">Simpan</button>
+                      </div>
+                    </div>
+                  </form>
+                </details>
               </td>
             </tr>
             {% endfor %}

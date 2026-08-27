@@ -15,6 +15,29 @@ class PackagedConfigTests(unittest.TestCase):
         path = Path(__file__).resolve().parents[1] / "whitelist.yaml"
         self.assertEqual(yaml.safe_load(path.read_text(encoding="utf-8")), {"whitelist": []})
 
+    def test_whitelist_update_rejects_stale_index_target(self) -> None:
+        original = {
+            "alarm_name_equals": "Alarm A",
+            "disposition": "False Positive",
+            "reason": "Known benign",
+        }
+        moved_target = {
+            "alarm_name_equals": "Alarm B",
+            "disposition": "Exclusion",
+            "reason": "Ticketed",
+        }
+        with patch.object(app.cfg, "load_whitelist", return_value=[moved_target]), patch.object(
+            app.cfg, "save_whitelist"
+        ) as save:
+            with self.assertRaises(app.cfg.RuleConflictError):
+                app.cfg.update_whitelist_rule(
+                    0,
+                    {**original, "reason": "Edited"},
+                    expected_version=app.cfg.whitelist_rule_version(original),
+                )
+
+        save.assert_not_called()
+
 
 class StartSettingsValidationTests(unittest.TestCase):
     def test_whitelist_accepts_client_field(self) -> None:
@@ -340,6 +363,109 @@ class WebSecurityTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(add_rule.call_args.args[0]["disposition"], "Exclusion")
+
+    def test_rules_ui_has_prefilled_whitelist_edit_form(self) -> None:
+        self.csrf()
+        with self.client.session_transaction() as session:
+            sid = session["sid"]
+            session["username"] = "analyst"
+        bot = app.BotState()
+        bot.upstream_cookie = "token"
+        app.RUNNING_BOTS[sid] = bot
+        rule = {
+            "alarm_name_equals": "Alarm A",
+            "client_equals": "PAC",
+            "disposition": "Exclusion",
+            "reason": "Already ticketed",
+        }
+
+        with patch.object(app.cfg, "load_whitelist", return_value=[rule]):
+            response = self.client.get("/rules")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'action="/rules/whitelist/edit/0"', response.data)
+        self.assertIn(b'value="Alarm A"', response.data)
+        self.assertIn(b'value="PAC"', response.data)
+        self.assertIn(b'value="Already ticketed"', response.data)
+        self.assertIn(b'<option value="Exclusion" selected>', response.data)
+        self.assertIn(b'name="expected_version"', response.data)
+
+    def test_whitelist_edit_post_updates_selected_rule(self) -> None:
+        token = self.csrf()
+        with self.client.session_transaction() as session:
+            sid = session["sid"]
+            session["username"] = "analyst"
+        bot = app.BotState()
+        bot.upstream_cookie = "token"
+        app.RUNNING_BOTS[sid] = bot
+
+        with patch.object(app.cfg, "update_whitelist_rule") as update_rule:
+            response = self.client.post("/rules/whitelist/edit/2", data={
+                "csrf_token": token,
+                "alarm_name_equals": "Alarm B",
+                "client_equals": "DCI",
+                "disposition": "False Positive",
+                "reason": "Known benign",
+                "expected_version": "version-1",
+            })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(update_rule.call_args.args[0], 2)
+        self.assertEqual(update_rule.call_args.args[1], {
+            "alarm_name_equals": "Alarm B",
+            "alarm_name_contains": "",
+            "alarm_type_equals": "",
+            "agent_name_equals": "",
+            "client_equals": "DCI",
+            "disposition": "False Positive",
+            "reason": "Known benign",
+        })
+        self.assertEqual(update_rule.call_args.kwargs["expected_version"], "version-1")
+
+    def test_whitelist_edit_stale_version_returns_conflict(self) -> None:
+        token = self.csrf()
+        with self.client.session_transaction() as session:
+            sid = session["sid"]
+            session["username"] = "analyst"
+        bot = app.BotState()
+        bot.upstream_cookie = "token"
+        app.RUNNING_BOTS[sid] = bot
+
+        with patch.object(
+            app.cfg,
+            "update_whitelist_rule",
+            side_effect=app.cfg.RuleConflictError("Rule berubah. Refresh halaman."),
+        ):
+            response = self.client.post("/rules/whitelist/edit/1", data={
+                "csrf_token": token,
+                "alarm_name_equals": "Alarm B",
+                "disposition": "False Positive",
+                "reason": "Known benign",
+                "expected_version": "stale-version",
+            })
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn(b"Rule berubah", response.data)
+
+    def test_whitelist_edit_invalid_index_returns_not_found(self) -> None:
+        token = self.csrf()
+        with self.client.session_transaction() as session:
+            sid = session["sid"]
+            session["username"] = "analyst"
+        bot = app.BotState()
+        bot.upstream_cookie = "token"
+        app.RUNNING_BOTS[sid] = bot
+
+        with patch.object(app.cfg, "update_whitelist_rule", side_effect=IndexError):
+            response = self.client.post("/rules/whitelist/edit/99", data={
+                "csrf_token": token,
+                "alarm_name_equals": "Alarm B",
+                "disposition": "False Positive",
+                "reason": "Known benign",
+                "expected_version": "version-1",
+            })
+
+        self.assertEqual(response.status_code, 404)
 
     def test_running_bot_rejects_start_without_saving_settings(self) -> None:
         token = self.csrf()
