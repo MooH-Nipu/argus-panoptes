@@ -27,7 +27,6 @@ services:
     ports:
       - "${BIND_IP:-127.0.0.1}:${PORT:-5000}:5000"
     environment:
-      ARGUS_ALLOWED_ORIGINS: "${ARGUS_ALLOWED_ORIGINS:?set ARGUS_ALLOWED_ORIGINS in .env}"
       ARGUS_TLS_INSECURE: "${ARGUS_TLS_INSECURE:-false}"
       ARGUS_CA_BUNDLE: "${ARGUS_CA_BUNDLE:-}"
       CONFIG_DIR: /data

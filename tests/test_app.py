@@ -173,16 +173,62 @@ class WebSecurityTests(unittest.TestCase):
         response = self.client.post("/login", data={})
         self.assertEqual(response.status_code, 403)
 
-    def test_upstream_cookie_never_enters_browser_session(self) -> None:
+    def test_login_uses_dynamic_private_ip_without_origin_env(self) -> None:
         token = self.csrf()
-        with patch.dict("os.environ", {"ARGUS_ALLOWED_ORIGINS": "https://upstream.test"}), patch.object(
+        with patch.dict("os.environ", {}, clear=True), patch.object(
             app.core, "login", return_value="SECRET_UPSTREAM_TOKEN"
-        ):
+        ) as upstream_login:
             response = self.client.post(
                 "/login",
                 data={
                     "csrf_token": token,
-                    "base_url": "https://upstream.test",
+                    "base_url": "https://10.20.30.40:8443/",
+                    "username": "analyst",
+                    "password": "password",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        upstream_login.assert_called_once_with(
+            "https://10.20.30.40:8443", "analyst", "password"
+        )
+
+    def test_login_rejects_hostname_to_prevent_dns_rebinding(self) -> None:
+        with self.assertRaisesRegex(ValueError, "IP private literal"):
+            app.validate_base_url("https://upstream.internal")
+
+    def test_login_rejects_public_or_local_targets(self) -> None:
+        for target in (
+            "https://8.8.8.8",
+            "https://100.64.0.1",
+            "https://127.0.0.1",
+            "https://169.254.169.254",
+            "https://198.18.0.1",
+        ):
+            with self.subTest(target=target), self.assertRaisesRegex(
+                ValueError, "jaringan private"
+            ):
+                app.validate_base_url(target)
+
+    def test_login_accepts_private_ipv6_literal(self) -> None:
+        self.assertEqual(
+            app.validate_base_url("https://[fd12:3456::10]:8443"),
+            "https://[fd12:3456::10]:8443",
+        )
+
+    def test_login_rejects_invalid_or_zero_port(self) -> None:
+        for target in ("https://10.20.30.40:0", "https://10.20.30.40:99999"):
+            with self.subTest(target=target), self.assertRaisesRegex(ValueError, "Port"):
+                app.validate_base_url(target)
+
+    def test_upstream_cookie_never_enters_browser_session(self) -> None:
+        token = self.csrf()
+        with patch.object(app.core, "login", return_value="SECRET_UPSTREAM_TOKEN"):
+            response = self.client.post(
+                "/login",
+                data={
+                    "csrf_token": token,
+                    "base_url": "https://10.20.30.40",
                     "username": "analyst",
                     "password": "password",
                 },
@@ -196,8 +242,8 @@ class WebSecurityTests(unittest.TestCase):
 
     def test_upstream_network_failure_returns_login_error(self) -> None:
         token = self.csrf()
-        upstream_request = httpx.Request("POST", "https://upstream.test/login")
-        with patch.dict("os.environ", {"ARGUS_ALLOWED_ORIGINS": "https://upstream.test"}), patch.object(
+        upstream_request = httpx.Request("POST", "https://10.20.30.40/login")
+        with patch.object(
             app.core, "login",
             side_effect=httpx.ConnectError("upstream unavailable", request=upstream_request),
         ):
@@ -205,7 +251,7 @@ class WebSecurityTests(unittest.TestCase):
                 "/login",
                 data={
                     "csrf_token": token,
-                    "base_url": "https://upstream.test",
+                    "base_url": "https://10.20.30.40",
                     "username": "analyst",
                     "password": "password",
                 },
@@ -237,13 +283,11 @@ class WebSecurityTests(unittest.TestCase):
         token = self.csrf()
         data = {
             "csrf_token": token,
-            "base_url": "https://upstream.test",
+            "base_url": "https://10.20.30.40",
             "username": "analyst",
             "password": "wrong",
         }
-        with patch.dict("os.environ", {"ARGUS_ALLOWED_ORIGINS": "https://upstream.test"}), patch.object(
-            app.core, "login", side_effect=app.core.LoginError("bad credentials"),
-        ):
+        with patch.object(app.core, "login", side_effect=app.core.LoginError("bad credentials")):
             for _ in range(5):
                 self.assertEqual(self.client.post("/login", data=data).status_code, 200)
             self.assertEqual(self.client.post("/login", data=data).status_code, 429)

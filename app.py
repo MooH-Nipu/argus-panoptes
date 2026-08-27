@@ -15,7 +15,7 @@ disimpan ke disk. Jangan expose ke network tanpa HTTPS + auth tambahan.
 
 from __future__ import annotations
 
-import os
+import ipaddress
 import secrets
 import threading
 import time
@@ -147,6 +147,17 @@ def _csrf_token() -> str:
     return token
 
 
+PRIVATE_UPSTREAM_NETWORKS = tuple(
+    ipaddress.ip_network(value)
+    for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
+)
+
+
+def _is_private_upstream_address(value: str) -> bool:
+    address = ipaddress.ip_address(value)
+    return any(address in network for network in PRIVATE_UPSTREAM_NETWORKS)
+
+
 def validate_base_url(value: str) -> str:
     parsed = urlparse(value.strip())
     if parsed.scheme != "https" or not parsed.hostname:
@@ -155,13 +166,20 @@ def validate_base_url(value: str) -> str:
         raise ValueError("Base URL tidak boleh berisi kredensial, query, atau fragment.")
     if parsed.path not in ("", "/"):
         raise ValueError("Base URL tidak boleh berisi path.")
-    allowed = {item.strip().rstrip("/") for item in os.getenv("ARGUS_ALLOWED_ORIGINS", "").split(",") if item.strip()}
-    origin = f"https://{parsed.netloc}"
-    if not allowed:
-        raise ValueError("ARGUS_ALLOWED_ORIGINS belum dikonfigurasi.")
-    if origin not in allowed:
-        raise ValueError("Base URL tidak ada di ARGUS_ALLOWED_ORIGINS.")
-    return origin
+    try:
+        port = 443 if parsed.port is None else parsed.port
+    except ValueError as exc:
+        raise ValueError("Port Base URL tidak valid.") from exc
+    if port < 1:
+        raise ValueError("Port Base URL tidak valid.")
+    try:
+        address = ipaddress.ip_address(parsed.hostname)
+    except ValueError as exc:
+        raise ValueError("Base URL upstream wajib memakai IP private literal, bukan hostname.") from exc
+    if not _is_private_upstream_address(str(address)):
+        raise ValueError("Base URL upstream wajib mengarah ke jaringan private yang aman.")
+    display_host = f"[{address.compressed}]" if address.version == 6 else address.compressed
+    return f"https://{display_host}" + (f":{port}" if port != 443 else "")
 
 
 def validate_start_settings(form: Any, defaults: dict[str, Any]) -> dict[str, Any]:

@@ -139,9 +139,9 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="field">
           <label for="base_url">Base URL upstream</label>
-          <input type="text" id="base_url" name="base_url" placeholder="https://upstream.internal"
+          <input type="text" id="base_url" name="base_url" placeholder="https://192.168.1.10"
                  value="{{ base_url or '' }}" aria-describedby="base-url-hint" autofocus required>
-          <p class="hint" id="base-url-hint">URL dasar upstream tanpa path. Nilai berbeda untuk tiap client.</p>
+          <p class="hint" id="base-url-hint">URL HTTPS memakai IP private tanpa path. Target mengikuti input ini; hostname ditolak untuk mencegah DNS rebinding.</p>
         </div>
 
         <div class="field">
