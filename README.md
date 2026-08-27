@@ -53,8 +53,8 @@ docker compose cp app:/tmp/argus-config.tgz ./argus-config.tgz
 - Browser keeps only opaque local session ID. upstream token stays in server memory.
 - Dry-run is default. It fetches, evaluates, and logs candidates without mutation.
 - Live mode requires explicit checkbox and confirmation.
-- Whitelist rules are operator decisions. Bot does not second-guess alarm names.
-- Automation rules can submit `False Positive` or `Exclusion`; existing rules default to `False Positive`.
+- Whitelist starts empty; operators add rules manually one by one through Rules UI.
+- Automation rules can submit `False Positive` or `Exclusion`; rules without disposition default to `False Positive`.
 - `Exclusion` uses the captured three-argument upstream action payload and never enters suppress fallback.
 - Protect rules override whitelist rules when both match.
 - Close cap is mandatory: 1–500 alarms per cycle.

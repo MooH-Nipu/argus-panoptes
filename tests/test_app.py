@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
+import yaml
 
 import app
+
+
+class PackagedConfigTests(unittest.TestCase):
+    def test_whitelist_starts_empty_for_manual_entry(self) -> None:
+        path = Path(__file__).resolve().parents[1] / "whitelist.yaml"
+        self.assertEqual(yaml.safe_load(path.read_text(encoding="utf-8")), {"whitelist": []})
 
 
 class StartSettingsValidationTests(unittest.TestCase):
