@@ -147,6 +147,113 @@ class ServerActionRetryTests(unittest.TestCase):
 
 
 class ClaimFallbackTests(unittest.TestCase):
+    def test_close_can_delay_before_first_alarm_for_cross_group_spacing(self) -> None:
+        events: list[object] = []
+
+        with patch.object(core, "_take_alarm", side_effect=lambda *args: events.append("take")), patch.object(
+            core, "_call_server_action", return_value={"ok": True}
+        ), patch.object(core.secrets, "randbelow", return_value=1):
+            submitted = core.close_alarms(
+                "https://upstream.test",
+                "cookie",
+                ["A"],
+                "reason",
+                confirm_owner=lambda aid: True,
+                wait=lambda seconds: events.append(("wait", seconds)) or False,
+                action_delay=(3, 7),
+                delay_before_first=True,
+            )
+
+        self.assertEqual(submitted, {"A"})
+        self.assertEqual(events[:2], [("wait", 4), "take"])
+
+    def test_stop_during_take_blocks_verdict_even_with_zero_delay(self) -> None:
+        stopped = False
+        mutations: list[object] = []
+
+        def take(*args):
+            nonlocal stopped
+            stopped = True
+
+        with patch.object(core, "_take_alarm", side_effect=take), patch.object(
+            core, "_call_server_action", side_effect=lambda *args, **kwargs: mutations.append(args[4])
+        ):
+            submitted = core.close_alarms(
+                "https://upstream.test",
+                "cookie",
+                ["A"],
+                "reason",
+                confirm_owner=lambda aid: True,
+                should_stop=lambda: stopped,
+                wait=lambda seconds: stopped,
+                action_delay=(0, 0),
+            )
+
+        self.assertEqual(submitted, set())
+        self.assertEqual(mutations, [])
+
+    def test_stop_during_owner_check_blocks_verdict(self) -> None:
+        stopped = False
+        mutations: list[object] = []
+
+        def confirm(aid):
+            nonlocal stopped
+            stopped = True
+            return True
+
+        with patch.object(core, "_take_alarm"), patch.object(
+            core, "_call_server_action", side_effect=lambda *args, **kwargs: mutations.append(args[4])
+        ):
+            submitted = core.close_alarms(
+                "https://upstream.test",
+                "cookie",
+                ["A"],
+                "reason",
+                confirm_owner=confirm,
+                should_stop=lambda: stopped,
+                wait=lambda seconds: stopped,
+                action_delay=(0, 0),
+            )
+
+        self.assertEqual(submitted, set())
+        self.assertEqual(mutations, [])
+
+    def test_close_uses_same_random_range_after_take_and_between_alarms(self) -> None:
+        events: list[object] = []
+
+        def take(client, base, cookie, aid):
+            events.append(("take", aid))
+
+        def confirm(aid):
+            events.append(("confirm", aid))
+            return True
+
+        def wait(seconds):
+            events.append(("wait", seconds))
+            return False
+
+        with patch.object(core, "_take_alarm", side_effect=take), patch.object(
+            core, "_call_server_action", side_effect=lambda *args, **kwargs: events.append(
+                ("mutate", args[4][0][0])
+            )
+        ), patch.object(core.secrets, "randbelow", side_effect=[1, 2, 3]):
+            submitted = core.close_alarms(
+                "https://upstream.test",
+                "cookie",
+                ["A", "B"],
+                "reason",
+                confirm_owner=confirm,
+                wait=wait,
+                action_delay=(3, 7),
+            )
+
+        self.assertEqual(submitted, {"A", "B"})
+        self.assertEqual(events, [
+            ("take", "A"), ("wait", 4), ("confirm", "A"), ("mutate", "A"),
+            ("wait", 5),
+            ("take", "B"), ("wait", 6), ("confirm", "B"), ("mutate", "B"),
+        ])
+
     def test_exclusion_uses_captured_three_argument_payload(self) -> None:
         payloads: list[object] = []
         original_take = core._take_alarm

@@ -3,6 +3,8 @@ protect_high_severity: false
 shift_time: 2 (08:00 - 16:00)
 page_size: 100
 max_close_per_cycle: 100
+action_delay_min_seconds: 3
+action_delay_max_seconds: 7
 dry_run: true
 enable_suppress_fallback: false
 date_from: ''

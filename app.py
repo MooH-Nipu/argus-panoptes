@@ -51,6 +51,7 @@ MAX_LOG_LINES = 500
 MIN_POLL_INTERVAL = 30
 MAX_POLL_INTERVAL = 86_400
 MAX_CLOSE_LIMIT = 500
+MAX_ACTION_DELAY = 300
 SESSION_IDLE_TTL = 8 * 60 * 60
 LOGIN_WINDOW = 60
 LOGIN_LIMIT = 5
@@ -173,6 +174,14 @@ def validate_start_settings(form: Any, defaults: dict[str, Any]) -> dict[str, An
     max_close = _to_int(form.get("max_close_per_cycle"), -1)
     if not 1 <= max_close <= MAX_CLOSE_LIMIT:
         raise ValueError(f"Maks close wajib 1-{MAX_CLOSE_LIMIT}.")
+    delay_min = _to_int(
+        form.get("action_delay_min_seconds"), defaults["action_delay_min_seconds"]
+    )
+    delay_max = _to_int(
+        form.get("action_delay_max_seconds"), defaults["action_delay_max_seconds"]
+    )
+    if not 0 <= delay_min <= delay_max <= MAX_ACTION_DELAY:
+        raise ValueError(f"Jeda aksi wajib 0-{MAX_ACTION_DELAY} detik dan minimum <= maksimum.")
     date_from = (form.get("date_from") or "").strip()
     date_to = (form.get("date_to") or "").strip()
     if bool(date_from) != bool(date_to):
@@ -192,6 +201,8 @@ def validate_start_settings(form: Any, defaults: dict[str, Any]) -> dict[str, An
         "shift_time": shift,
         "poll_interval_seconds": interval,
         "max_close_per_cycle": max_close,
+        "action_delay_min_seconds": delay_min,
+        "action_delay_max_seconds": delay_max,
         "protect_high_severity": form.get("protect_high_severity") == "on",
         "date_from": date_from,
         "date_to": date_to,
@@ -310,6 +321,10 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
     date_from = str(settings.get("date_from", "") or "")
     date_to = str(settings.get("date_to", "") or "")
     last_days = str(settings.get("last_days", "1") or "1")
+    action_delay = (
+        int(settings["action_delay_min_seconds"]),
+        int(settings["action_delay_max_seconds"]),
+    )
 
     if date_from and date_to:
         range_txt = f"tanggal {date_from} s/d {date_to}"
@@ -318,7 +333,7 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
     limit_txt = "tanpa batas" if max_close <= 0 else f"maks {max_close}/sapu"
     bot.log(f"Bot start. Shift='{shift}', range={range_txt}, interval={interval}s, "
             f"protect_high_severity={'ON' if protect_high else 'OFF'}, "
-            f"close {limit_txt}.")
+            f"close {limit_txt}, jeda aksi random={action_delay[0]}-{action_delay[1]}s.")
 
     try:
         while not bot.stop_event.is_set():
@@ -326,7 +341,8 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
             _run_one_cycle(bot, cookie, shift, page_size, protect_high,
                            max_close, date_from, date_to, last_days,
                            bool(settings.get("dry_run", True)),
-                           bool(settings.get("enable_suppress_fallback", False)))
+                           bool(settings.get("enable_suppress_fallback", False)),
+                           action_delay)
 
             with bot.lock:
                 bot.stats["cycles"] += 1
@@ -367,6 +383,7 @@ def _run_one_cycle(
     last_days: str = "1",
     dry_run: bool = True,
     enable_suppress_fallback: bool = False,
+    action_delay: tuple[int, int] = (0, 0),
 ) -> None:
     """Satu siklus sapu: fetch -> evaluate -> group -> close -> verify (§4.4).
 
@@ -470,7 +487,7 @@ def _run_one_cycle(
             for alarm in refreshed
         )
 
-    for (disposition, reason), ids in to_close.items():
+    for group_index, ((disposition, reason), ids) in enumerate(to_close.items()):
         # Stop dicek antar-grup — kalau user klik Stop, jangan mulai grup baru.
         if should_stop():
             bot.log("Stop — siklus dihentikan sebelum grup berikutnya.")
@@ -481,6 +498,8 @@ def _run_one_cycle(
             log=bot.log, should_stop=should_stop,
             skip_take_ids=skip_take_ids, confirm_owner=confirm_owner,
             disposition=disposition,
+            wait=bot.stop_event.wait, action_delay=action_delay,
+            delay_before_first=group_index > 0,
         )
         verified, missing = core.verify_disposition(
             bot.base_url, cookie, sorted(submitted), shift, page_size=page_size, log=bot.log,
@@ -514,6 +533,7 @@ def _run_one_cycle(
                 should_stop=should_stop,
                 skip_take_ids=skip_take_ids,
                 confirm_owner=confirm_owner,
+                wait=bot.stop_event.wait, action_delay=action_delay,
             )
             verified2, missing2 = core.verify_false_positive(
                 bot.base_url, cookie, miss_ids, shift, page_size=page_size, log=bot.log,

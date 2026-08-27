@@ -44,6 +44,10 @@
           <div class="field"><label for="poll_interval_seconds">Interval sapu (detik)</label><input type="number" name="poll_interval_seconds" id="poll_interval_seconds" min="30" max="86400" value="{{ settings.poll_interval_seconds }}"></div>
           <div class="field"><label for="max_close_per_cycle">Maks close per sapu</label><input type="number" name="max_close_per_cycle" id="max_close_per_cycle" min="1" max="500" value="{{ settings.max_close_per_cycle }}"><p class="hint">Hard cap 1–500. Unlimited dihapus.</p></div>
         </div>
+        <div class="row">
+          <div class="field"><label for="action_delay_min_seconds">Jeda aksi minimum (detik)</label><input type="number" name="action_delay_min_seconds" id="action_delay_min_seconds" min="0" max="300" value="{{ settings.action_delay_min_seconds }}"></div>
+          <div class="field"><label for="action_delay_max_seconds">Jeda aksi maksimum (detik)</label><input type="number" name="action_delay_max_seconds" id="action_delay_max_seconds" min="0" max="300" value="{{ settings.action_delay_max_seconds }}"><p class="hint">Satu range random untuk jeda setelah Take sebelum verdict dan antar-alarm.</p></div>
+        </div>
         <div class="toggle"><input type="checkbox" name="protect_high_severity" id="protect_high_severity" {% if settings.protect_high_severity %}checked{% endif %}><label for="protect_high_severity">Protect high &amp; critical<small>Opsional. Whitelist tetap mengikuti keputusan operator.</small></label></div>
         <div class="toggle"><input type="checkbox" name="enable_suppress_fallback" id="enable_suppress_fallback" {% if settings.enable_suppress_fallback %}checked{% endif %}><label for="enable_suppress_fallback">Enable suppress fallback<small>Off default. Dipakai hanya setelah verifikasi ulang.</small></label></div>
         <div class="danger-zone"><div class="toggle"><input type="checkbox" name="live_mode" id="live_mode"><label for="live_mode">LIVE mode — izinkan mutation upstream<small>Jika tidak dicentang, bot hanya fetch, evaluate, dan log kandidat.</small></label></div></div>

@@ -82,6 +82,39 @@ class StartSettingsValidationTests(unittest.TestCase):
         self.assertTrue(settings["protect_high_severity"])
         self.assertTrue(settings["dry_run"])
 
+    def test_accepts_bounded_action_delay_range(self) -> None:
+        settings = app.validate_start_settings(
+            {
+                "shift_time": app.cfg.SHIFT_OPTIONS[0],
+                "poll_interval_seconds": "30",
+                "max_close_per_cycle": "25",
+                "date_from": "",
+                "date_to": "",
+                "last_days": "1",
+                "action_delay_min_seconds": "3",
+                "action_delay_max_seconds": "7",
+            },
+            app.cfg.DEFAULT_SETTINGS,
+        )
+
+        self.assertEqual(settings["action_delay_min_seconds"], 3)
+        self.assertEqual(settings["action_delay_max_seconds"], 7)
+
+    def test_rejects_reversed_action_delay_range(self) -> None:
+        form = {
+            "shift_time": app.cfg.SHIFT_OPTIONS[0],
+            "poll_interval_seconds": "30",
+            "max_close_per_cycle": "25",
+            "date_from": "",
+            "date_to": "",
+            "last_days": "1",
+            "action_delay_min_seconds": "8",
+            "action_delay_max_seconds": "2",
+        }
+
+        with self.assertRaisesRegex(ValueError, "Jeda aksi"):
+            app.validate_start_settings(form, app.cfg.DEFAULT_SETTINGS)
+
 
 class CycleDispositionTests(unittest.TestCase):
     def test_exclusion_uses_exclusion_verification_without_suppress(self) -> None:

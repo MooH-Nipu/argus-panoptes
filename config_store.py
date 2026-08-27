@@ -40,6 +40,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # 0 = tanpa batas (close semua yang match). Beda dari batch_size yang cuma
     # ngatur jumlah ID per HTTP request.
     "max_close_per_cycle": 100,
+    "action_delay_min_seconds": 3,
+    "action_delay_max_seconds": 7,
     "dry_run": True,
     "enable_suppress_fallback": False,
     # Rentang waktu fetch alarm. date_from/date_to (format YYYY-MM-DD) di-AND

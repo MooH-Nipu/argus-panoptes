@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import time
 from contextlib import nullcontext
 from typing import Any, Callable, Optional
@@ -438,6 +439,26 @@ def _take_alarm(
         )
 
 
+def _wait_random_delay(
+    action_delay: tuple[int, int],
+    wait: Optional[Callable[[float], bool]],
+    log: Optional[Callable[[str], None]],
+    label: str,
+) -> bool:
+    low, high = action_delay
+    if not 0 <= low <= high:
+        raise ValueError("Range jeda aksi tidak valid.")
+    seconds = low + secrets.randbelow(high - low + 1)
+    if seconds == 0:
+        return False
+    if log:
+        log(f"  Jeda random {seconds}s {label}.")
+    if wait:
+        return bool(wait(seconds))
+    time.sleep(seconds)
+    return False
+
+
 def close_alarms(
     base_url: str,
     cookie: str,
@@ -448,6 +469,9 @@ def close_alarms(
     skip_take_ids: Optional[set[str]] = None,
     confirm_owner: Optional[Callable[[str], bool]] = None,
     disposition: str = STATUS_FALSE_POSITIVE,
+    wait: Optional[Callable[[float], bool]] = None,
+    action_delay: tuple[int, int] = (0, 0),
+    delay_before_first: bool = False,
 ) -> set[str]:
     """Mutasi alarm PER-ALARM: TAKE dulu, lalu set disposition (§3.3).
     Alur ini confirmed dari capture DevTools: mutation tanpa take = silent fail.
@@ -473,7 +497,11 @@ def close_alarms(
         skip_take_ids = set()
     submitted: set[str] = set()
     with _new_client() as client:
-        for aid in ids:
+        for index, aid in enumerate(ids):
+            if (index or delay_before_first) and _wait_random_delay(
+                action_delay, wait, log, "sebelum alarm berikutnya"
+            ):
+                break
             if should_stop and should_stop():
                 if log:
                     log(f"  Stop — close dihentikan ({len(submitted)}/{len(ids)} terkirim).")
@@ -486,10 +514,18 @@ def close_alarms(
                 else:
                     _take_alarm(client, base_url, cookie, aid)
                     skip_take_ids.add(aid)
+                    if _wait_random_delay(
+                        action_delay, wait, log, f"setelah take [{aid}] sebelum verdict"
+                    ):
+                        break
+                    if should_stop and should_stop():
+                        break
                 if not confirm_owner(aid):
                     if log:
                         log(f"  GAGAL [{aid}]: ownership sebelum mutation tidak terkonfirmasi.")
                     continue
+                if should_stop and should_stop():
+                    break
                 # Langkah 2: set disposition (format 3-argumen, §3.3).
                 payload = [[aid], disposition, reason]
                 _call_server_action(
@@ -535,6 +571,9 @@ def suppress_alarms(
     should_stop: Optional[Callable[[], bool]] = None,
     skip_take_ids: Optional[set[str]] = None,
     confirm_owner: Optional[Callable[[str], bool]] = None,
+    wait: Optional[Callable[[float], bool]] = None,
+    action_delay: tuple[int, int] = (0, 0),
+    delay_before_first: bool = False,
 ) -> set[str]:
     """Close alarm lewat jalur SUPPRESS (format 4-argumen). Dipakai buat alarm
     yang silent-fail di jalur FP 3-argumen biasa — yaitu alarm grup / punya
@@ -557,7 +596,11 @@ def suppress_alarms(
     reason = (reason or "")[:REASON_MAX_LEN]
     submitted: set[str] = set()
     with _new_client() as client:
-        for aid in ids:
+        for index, aid in enumerate(ids):
+            if (index or delay_before_first) and _wait_random_delay(
+                action_delay, wait, log, "sebelum alarm berikutnya"
+            ):
+                break
             if should_stop and should_stop():
                 if log:
                     log(f"  Stop — suppress dihentikan ({len(submitted)}/{len(ids)} terkirim).")
@@ -570,10 +613,18 @@ def suppress_alarms(
                     _take_alarm(client, base_url, cookie, aid)
                     if skip_take_ids is not None:
                         skip_take_ids.add(aid)
+                    if _wait_random_delay(
+                        action_delay, wait, log, f"setelah take [{aid}] sebelum verdict"
+                    ):
+                        break
+                    if should_stop and should_stop():
+                        break
                 if not confirm_owner(aid):
                     if log:
                         log(f"  GAGAL suppress [{aid}]: ownership sebelum mutation tidak terkonfirmasi.")
                     continue
+                if should_stop and should_stop():
+                    break
                 payload = [
                     [aid],
                     WHITELIST_CATEGORY,
