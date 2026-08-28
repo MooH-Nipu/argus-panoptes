@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -12,46 +8,6 @@ import httpx
 import yaml
 
 import app
-
-
-class NativeEnvironmentTests(unittest.TestCase):
-    def test_dotenv_does_not_override_exported_environment(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory, ".env")
-            path.write_text("ARGUS_TLS_INSECURE=true\n", encoding="utf-8")
-            with patch.dict(os.environ, {"ARGUS_TLS_INSECURE": "false"}, clear=True):
-                app._load_env(path)
-
-                self.assertEqual(os.environ["ARGUS_TLS_INSECURE"], "false")
-
-    def test_native_startup_loads_dotenv_tls_setting(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            Path(directory, ".env").write_text("ARGUS_TLS_INSECURE=true\n", encoding="utf-8")
-            project = Path(__file__).resolve().parents[1]
-            command = (
-                "import runpy, flask; "
-                "flask.Flask.run=lambda *args, **kwargs: None; "
-                f"runpy.run_path({str(project / 'app.py')!r}, run_name='__main__'); "
-                "import argus_core as core; "
-                "client=core._new_client(); "
-                "print(client._transport._pool._ssl_context.verify_mode); client.close()"
-            )
-            environment = {
-                key: value
-                for key, value in os.environ.items()
-                if key not in {"ARGUS_CA_BUNDLE", "ARGUS_TLS_INSECURE"}
-            }
-            result = subprocess.run(
-                [sys.executable, "-c", command],
-                cwd=directory,
-                env={**environment, "PYTHONPATH": str(project)},
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "0")
 
 
 class PackagedConfigTests(unittest.TestCase):

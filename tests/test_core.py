@@ -30,46 +30,15 @@ class Client:
 
 
 class TLSConfigurationTests(unittest.TestCase):
-    def test_client_uses_explicit_ca_bundle(self) -> None:
-        with patch.dict(
-            "os.environ", {"ARGUS_CA_BUNDLE": "local-certs/upstream.pem"}, clear=True
-        ), patch.object(core.httpx, "Client") as client:
+    def test_client_always_accepts_internal_self_signed_certificate(self) -> None:
+        with patch.object(core.httpx, "Client") as client:
             core._new_client()
 
         client.assert_called_once_with(
             follow_redirects=False,
             timeout=core.DEFAULT_TIMEOUT,
-            verify="local-certs/upstream.pem",
+            verify=False,
         )
-
-    def test_tls_verification_is_enabled_by_default(self) -> None:
-        with patch.dict("os.environ", {}, clear=True), patch.object(
-            core.httpx, "Client"
-        ) as client:
-            core._new_client()
-
-        self.assertTrue(client.call_args.kwargs["verify"])
-
-    def test_insecure_tls_requires_explicit_opt_in(self) -> None:
-        with patch.dict(
-            "os.environ", {"ARGUS_TLS_INSECURE": "true"}, clear=True
-        ), patch.object(core.httpx, "Client") as client:
-            core._new_client()
-
-        self.assertFalse(client.call_args.kwargs["verify"])
-
-    def test_ca_bundle_takes_precedence_over_insecure_opt_in(self) -> None:
-        with patch.dict(
-            "os.environ",
-            {
-                "ARGUS_CA_BUNDLE": "local-certs/upstream.pem",
-                "ARGUS_TLS_INSECURE": "true",
-            },
-            clear=True,
-        ), patch.object(core.httpx, "Client") as client:
-            core._new_client()
-
-        self.assertEqual(client.call_args.kwargs["verify"], "local-certs/upstream.pem")
 
 
 class RuleMatchingTests(unittest.TestCase):

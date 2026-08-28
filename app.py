@@ -16,14 +16,12 @@ disimpan ke disk. Jangan expose ke network tanpa HTTPS + auth tambahan.
 from __future__ import annotations
 
 import ipaddress
-import os
 import secrets
 import threading
 import time
 from collections import deque
 from datetime import date, datetime
 from functools import wraps
-from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -743,24 +741,6 @@ def _handle_rule_add(fields: list[str], add_fn, extra_fields: tuple[str, ...] = 
 
 # ---------- Helpers ----------
 
-def _load_env(path: Path = Path(".env")) -> None:
-    """Load simple KEY=value settings without overriding exported variables."""
-    try:
-        lines = path.read_text(encoding="utf-8-sig").splitlines()
-    except FileNotFoundError:
-        return
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        key, separator, value = line.partition("=")
-        key, value = key.strip(), value.strip()
-        if not separator or not key.isidentifier():
-            continue
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        os.environ.setdefault(key, value)
-
 def _to_int(val: Any, default: int) -> int:
     try:
         return int(val)
@@ -769,6 +749,5 @@ def _to_int(val: Any, default: int) -> int:
 
 
 if __name__ == "__main__":
-    _load_env()
     # Localhost only (§5). Debug off biar nggak bocorin trace ke browser.
     app.run(host="127.0.0.1", port=5000, debug=False, threaded=True)
