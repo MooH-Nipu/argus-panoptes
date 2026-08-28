@@ -19,10 +19,14 @@ cd argus-panoptes
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
+# For trusted internal self-signed upstream, set ARGUS_TLS_INSECURE=true in .env.
 python app.py
 ```
 
 Open `http://127.0.0.1:5000`.
+
+Native `python app.py` loads `.env` from the current directory. Exported environment variables take precedence. Prefer `ARGUS_CA_BUNDLE`; use `ARGUS_TLS_INSECURE=true` only for a trusted internal self-signed upstream server.
 
 ## Docker / LAN review
 
