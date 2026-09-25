@@ -186,6 +186,28 @@ def _call_server_action(
 
 # ---------- Login (§3.4) ----------
 
+# Jalur login sengaja minik browser (UA, Referer, Sec-Fetch-*) — setelah
+# update Sep-2026, POST non-browser ke endpoint auth bisa direset upstream
+# upstream (nginx balas 502) walau kredensialnya benar.
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+)
+
+
+def _login_headers(base_url: str) -> dict[str, str]:
+    origin = _origin(base_url)
+    return {
+        "User-Agent": BROWSER_UA,
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": f"{origin}/auth/login",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Dest": "empty",
+    }
+
+
 def login(base_url: str, username: str, password: str) -> str:
     """NextAuth credentials login. Balikin string cookie sesi buat dipakai
     di semua request server action selanjutnya.
@@ -194,7 +216,10 @@ def login(base_url: str, username: str, password: str) -> str:
     base = _origin(base_url)
     with _new_client() as client:
         # Step 1: ambil CSRF token.
-        csrf_resp = client.get(f"{base}/api/auth/csrf")
+        csrf_resp = client.get(
+            f"{base}/api/auth/csrf",
+            headers={**_login_headers(base), "Content-Type": "application/json"},
+        )
         csrf_resp.raise_for_status()
         try:
             csrf_token = csrf_resp.json()["csrfToken"]
@@ -223,6 +248,7 @@ def login(base_url: str, username: str, password: str) -> str:
             f"{base}/api/auth/callback/credentials",
             data=form,
             cookies=pre_cookies,
+            headers={**_login_headers(base), "Origin": base},
         )
         if login_resp.status_code >= 400:
             # Sertakan body respons biar error di UI langsung nunjukin alasan

@@ -52,9 +52,15 @@ def _mock_login_client(handler) -> httpx.Client:
 
 class LoginFlowTests(unittest.TestCase):
     def test_login_form_matches_browser_capture(self) -> None:
-        seen: dict[str, str] = {}
+        seen_headers: dict[str, httpx.Headers] = {}
+        seen_body: dict[str, str] = {}
+
+        def capture(request: httpx.Request) -> None:
+            seen_headers[request.url.path] = request.headers
+            seen_body[request.url.path] = request.content.decode() if request.content else ""
 
         def handler(request: httpx.Request) -> httpx.Response:
+            capture(request)
             if request.url.path == "/api/auth/csrf":
                 return httpx.Response(
                     200,
@@ -62,7 +68,6 @@ class LoginFlowTests(unittest.TestCase):
                     headers={"set-cookie": "__Host-next-auth.csrf-token=csrf-tok; Path=/; Secure"},
                 )
             if request.url.path == "/api/auth/callback/credentials":
-                seen["body"] = request.content.decode()
                 return httpx.Response(
                     200,
                     json={"url": "https://upstream.test/auth/login"},
@@ -75,11 +80,19 @@ class LoginFlowTests(unittest.TestCase):
         with patch.object(core, "_new_client", return_value=_mock_login_client(handler)):
             cookie = core.login("https://upstream.test", "user@x.id", "pw")
 
-        form = parse_qs(seen["body"])
+        form = parse_qs(seen_body["/api/auth/callback/credentials"])
         self.assertEqual(form["login_method"], ["Basic"])
         self.assertEqual(form["callbackUrl"], ["https://upstream.test/auth/login"])
         self.assertEqual(form["csrfToken"], ["csrf-tok"])
         self.assertIn("__Secure-next-auth.session-token=session-abc", cookie)
+
+        # Login harus minik browser — upstream nge-reset request non-browser (502).
+        for path in ("/api/auth/csrf", "/api/auth/callback/credentials"):
+            self.assertTrue(seen_headers[path]["user-agent"].startswith("Mozilla/5.0"))
+            self.assertEqual(seen_headers[path]["referer"], "https://upstream.test/auth/login")
+        self.assertEqual(
+            seen_headers["/api/auth/callback/credentials"]["origin"], "https://upstream.test"
+        )
 
     def test_login_error_includes_upstream_response_body(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
