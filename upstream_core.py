@@ -205,10 +205,13 @@ def login(base_url: str, username: str, password: str) -> str:
         pre_cookies = client.cookies
 
         # Step 2: POST kredensial.
+        # PENTING: login_method harus persis "Basic" (B kapital). Capture browser
+        # pasca-update upstream (2026-09-25) nunjukin server strict soal nilai ini —
+        # lowercase "basic" dibales 401 CredentialsSignin walau kredensial bener.
         form = {
             "username": username,
             "password": password,
-            "login_method": "basic",
+            "login_method": "Basic",
             "client": "",
             "otp_code": "0",
             "redirect": "false",
@@ -221,7 +224,15 @@ def login(base_url: str, username: str, password: str) -> str:
             data=form,
             cookies=pre_cookies,
         )
-        login_resp.raise_for_status()
+        if login_resp.status_code >= 400:
+            # Sertakan body respons biar error di UI langsung nunjukin alasan
+            # asli dari upstream (mis. error=CredentialsSignin&code=...) — bukan
+            # cuma "401 Unauthorized" yang bikin nebak-nebak.
+            body = " ".join((login_resp.text or "").split())[:300]
+            raise LoginError(
+                f"upstream menolak login (HTTP {login_resp.status_code}). "
+                f"Respons: {body or '<kosong>'}"
+            )
 
         # Step 3: ekstrak session token dari cookie jar.
         session_cookie = _extract_session_cookie(client.cookies)

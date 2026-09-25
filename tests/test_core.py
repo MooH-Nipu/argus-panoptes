@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import patch
+from urllib.parse import parse_qs
 
 import httpx
 
@@ -39,6 +40,73 @@ class TLSConfigurationTests(unittest.TestCase):
             timeout=core.DEFAULT_TIMEOUT,
             verify=False,
         )
+
+
+def _mock_login_client(handler) -> httpx.Client:
+    """Client httpx asli + MockTransport — encoding form login diuji beneran."""
+    return httpx.Client(
+        transport=httpx.MockTransport(handler),
+        follow_redirects=False,
+    )
+
+
+class LoginFlowTests(unittest.TestCase):
+    def test_login_form_matches_browser_capture(self) -> None:
+        seen: dict[str, str] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/auth/csrf":
+                return httpx.Response(
+                    200,
+                    json={"csrfToken": "csrf-tok"},
+                    headers={"set-cookie": "__Host-next-auth.csrf-token=csrf-tok; Path=/; Secure"},
+                )
+            if request.url.path == "/api/auth/callback/credentials":
+                seen["body"] = request.content.decode()
+                return httpx.Response(
+                    200,
+                    json={"url": "https://upstream.test/auth/login"},
+                    headers={
+                        "set-cookie": "__Secure-next-auth.session-token=session-abc; Path=/; Secure"
+                    },
+                )
+            return httpx.Response(404)
+
+        with patch.object(core, "_new_client", return_value=_mock_login_client(handler)):
+            cookie = core.login("https://upstream.test", "user@x.id", "pw")
+
+        form = parse_qs(seen["body"])
+        self.assertEqual(form["login_method"], ["Basic"])
+        self.assertEqual(form["callbackUrl"], ["https://upstream.test/auth/login"])
+        self.assertEqual(form["csrfToken"], ["csrf-tok"])
+        self.assertIn("__Secure-next-auth.session-token=session-abc", cookie)
+
+    def test_login_error_includes_upstream_response_body(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/auth/csrf":
+                return httpx.Response(200, json={"csrfToken": "csrf-tok"})
+            return httpx.Response(
+                401,
+                text='{"url":"https://upstream.test/auth/login?error=CredentialsSignin&code=credentials"}',
+            )
+
+        with patch.object(core, "_new_client", return_value=_mock_login_client(handler)):
+            with self.assertRaises(core.LoginError) as ctx:
+                core.login("https://upstream.test", "user@x.id", "pw")
+
+        message = str(ctx.exception)
+        self.assertIn("401", message)
+        self.assertIn("CredentialsSignin", message)
+
+    def test_login_reports_missing_csrf_token(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={})
+
+        with patch.object(core, "_new_client", return_value=_mock_login_client(handler)):
+            with self.assertRaises(core.LoginError) as ctx:
+                core.login("https://upstream.test", "user@x.id", "pw")
+
+        self.assertIn("csrfToken", str(ctx.exception))
 
 
 class RuleMatchingTests(unittest.TestCase):
