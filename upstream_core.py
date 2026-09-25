@@ -13,6 +13,7 @@ browser automation karena upstream credentials-based tanpa OTP/SSO (§3.4).
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import secrets
 import time
@@ -73,8 +74,21 @@ MAX_RETRIES = 3
 RETRY_BACKOFF = 2.0  # detik, dikali attempt
 
 
-def _new_client() -> httpx.Client:
+def _h2_available() -> bool:
+    """HTTP/2 (paket `h2`) terpasang? Browser selalu pakai h2 di HTTPS —
+    jalur login nyoba ikut biar transport-nya sama."""
+    return importlib.util.find_spec("h2") is not None
+
+
+def _new_client(http2: bool = False) -> httpx.Client:
     """Build client for private-IP upstream servers with self-signed TLS."""
+    if http2 and _h2_available():
+        return httpx.Client(
+            follow_redirects=False,
+            timeout=DEFAULT_TIMEOUT,
+            verify=False,  # Internal self-signed upstream; private-IP HTTPS enforced.  # nosec B501
+            http2=True,
+        )
     return httpx.Client(
         follow_redirects=False,
         timeout=DEFAULT_TIMEOUT,
@@ -186,25 +200,51 @@ def _call_server_action(
 
 # ---------- Login (§3.4) ----------
 
-# Jalur login sengaja minik browser (UA, Referer, Sec-Fetch-*) — setelah
-# update Sep-2026, POST non-browser ke endpoint auth bisa direset upstream
-# upstream (nginx balas 502) walau kredensialnya benar.
+# Jalur login minik browser sepersis mungkin — sejak update Sep-2026
+# endpoint auth upstream nge-reset request non-browser (nginx balas 502) walau
+# kredensialnya benar. Ditiru: urutan navigasi, header, dan transport (h2).
 BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
 )
 
+# Client hints ala Chrome (persis dari capture browser 2026-09-25).
+_CHROME_HINTS = {
+    "Sec-Ch-Ua": '"Not-A.Brand";v="24", "Chromium";v="146"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+}
 
-def _login_headers(base_url: str) -> dict[str, str]:
+
+def _login_headers(base_url: str, *, nav: bool = False) -> dict[str, str]:
+    """Header ala Chrome. `nav=True` untuk request navigasi halaman (buka
+    URL langsung), default untuk fetch API dari aplikasinya."""
     origin = _origin(base_url)
-    return {
+    common = {
         "User-Agent": BROWSER_UA,
-        "Accept": "*/*",
         "Accept-Language": "en-US,en;q=0.9",
+        **_CHROME_HINTS,
+    }
+    if nav:
+        return {
+            **common,
+            "Accept": (
+                "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                "image/avif,image/webp,image/apng,*/*;q=0.8"
+            ),
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Dest": "document",
+            "Upgrade-Insecure-Requests": "1",
+        }
+    return {
+        **common,
+        "Accept": "*/*",
         "Referer": f"{origin}/auth/login",
         "Sec-Fetch-Site": "same-origin",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Dest": "empty",
+        "Priority": "u=1, i",
     }
 
 
@@ -214,7 +254,25 @@ def login(base_url: str, username: str, password: str) -> str:
 
     Nggak butuh Playwright — pure HTTP karena nggak ada OTP/SSO (§3.4)."""
     base = _origin(base_url)
-    with _new_client() as client:
+    with _new_client(http2=True) as client:
+        # Step 0: tiruin navigasi browser: halaman login → signin → providers.
+        # Ini yang bikin cookie __Secure-next-auth.callback-url kese-set di
+        # jar — browser selalu bawa cookie itu ke POST credentials, request
+        # langsung-API nggak. Best-effort; gate sebenarnya di step csrf+POST.
+        try:
+            client.get(f"{base}/auth/login", headers=_login_headers(base, nav=True))
+            client.get(
+                f"{base}/api/auth/signin",
+                params={"callbackUrl": f"{base}/auth/login"},
+                headers=_login_headers(base),
+            )
+            client.get(
+                f"{base}/api/auth/providers",
+                headers={**_login_headers(base), "Content-Type": "application/json"},
+            )
+        except httpx.HTTPError:
+            pass
+
         # Step 1: ambil CSRF token.
         csrf_resp = client.get(
             f"{base}/api/auth/csrf",
