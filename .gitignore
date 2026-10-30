@@ -7,3 +7,4 @@ venv/
 .coverage
 .env
 data/
+audit.jsonl

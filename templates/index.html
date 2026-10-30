@@ -31,15 +31,7 @@
       <h2 id="control-title">Kontrol bot <span class="mode" id="modeBadge">dry run default</span></h2>
       <form id="startForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div class="row">
-          <div class="field"><label for="date_from">Dari tanggal</label><input type="date" name="date_from" id="date_from" value="{{ settings.date_from }}"></div>
-          <div class="field"><label for="date_to">Sampai tanggal</label><input type="date" name="date_to" id="date_to" value="{{ settings.date_to }}"></div>
-        </div>
-        <p class="hint">Isi keduanya untuk range tetap. Kosongkan keduanya untuk mode hari terakhir.</p>
-        <div class="row">
-          <div class="field"><label for="shift_time">Shift</label><select name="shift_time" id="shift_time">{% for opt in shift_options %}<option value="{{ opt }}" {% if opt == settings.shift_time %}selected{% endif %}>{{ opt }}</option>{% endfor %}</select></div>
-          <div class="field"><label for="last_days">Hari terakhir</label><input type="number" name="last_days" id="last_days" min="1" max="365" value="{{ settings.last_days }}"></div>
-        </div>
+        <div class="field"><span class="eyebrow">Shift aktif</span><div class="num" style="font-size:15px">{{ current_shift }}</div><p class="hint">Otomatis dari jam sistem, range hari ini. Dihitung ulang tiap siklus.</p></div>
         <div class="row">
           <div class="field"><label for="poll_interval_seconds">Interval sapu (detik)</label><input type="number" name="poll_interval_seconds" id="poll_interval_seconds" min="30" max="86400" value="{{ settings.poll_interval_seconds }}"></div>
           <div class="field"><label for="max_close_per_cycle">Maks close per sapu</label><input type="number" name="max_close_per_cycle" id="max_close_per_cycle" min="1" max="500" value="{{ settings.max_close_per_cycle }}"><p class="hint">Hard cap 1–500. Unlimited dihapus.</p></div>

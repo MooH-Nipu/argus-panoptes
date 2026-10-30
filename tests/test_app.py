@@ -83,8 +83,43 @@ class StartSettingsValidationTests(unittest.TestCase):
             "last_days": "wat",
         }
 
-        with self.assertRaisesRegex(ValueError, "Shift"):
+        with self.assertRaisesRegex(ValueError, "Interval"):
             app.validate_start_settings(invalid, app.cfg.DEFAULT_SETTINGS)
+
+    def test_start_settings_ignore_client_time_fields(self) -> None:
+        settings = app.validate_start_settings(
+            {
+                "shift_time": "garbage",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-02",
+                "last_days": "365",
+                "poll_interval_seconds": "30",
+                "max_close_per_cycle": "25",
+            },
+            app.cfg.DEFAULT_SETTINGS,
+        )
+
+        for key in ("shift_time", "date_from", "date_to", "last_days"):
+            self.assertNotIn(key, settings)
+
+    def test_current_shift_follows_system_clock(self) -> None:
+        from datetime import datetime
+
+        cases = [(0, 0), (7, 0), (8, 1), (15, 1), (16, 2), (23, 2)]
+        for hour, idx in cases:
+            with self.subTest(hour=hour):
+                self.assertEqual(
+                    app.cfg.current_shift(datetime(2026, 10, 30, hour, 59)),
+                    app.cfg.SHIFT_OPTIONS[idx],
+                )
+
+    def test_whitelist_rejects_too_short_contains(self) -> None:
+        with self.assertRaisesRegex(ValueError, "minimal"):
+            app.cfg.clean_whitelist_rule({"alarm_name_contains": "error", "reason": "x"})
+        cleaned = app.cfg.clean_whitelist_rule(
+            {"alarm_name_contains": "Invalid URI", "reason": "x"}
+        )
+        self.assertEqual(cleaned["alarm_name_contains"], "Invalid URI")
 
     def test_accepts_bounded_settings_and_defaults_to_dry_run(self) -> None:
         settings = app.validate_start_settings(
@@ -178,6 +213,80 @@ class CycleDispositionTests(unittest.TestCase):
         self.assertEqual(close.call_args.kwargs["disposition"], "Exclusion")
         self.assertEqual(verify.call_args.kwargs["disposition"], "Exclusion")
         suppress.assert_not_called()
+
+    def _live_cycle(self, verify_effect):
+        bot = app.BotState()
+        bot.base_url = "https://upstream.test"
+        bot.username = "analyst"
+        alarm = {"_id": "A", "alarm_name": "Alarm A", "severity": "low", "email": "analyst"}
+        rule = {"alarm_name_equals": "Alarm A", "disposition": "False Positive", "reason": "FP"}
+        with patch.object(app.cfg, "load_whitelist", return_value=[rule]), patch.object(
+            app.cfg, "load_protect", return_value=[]
+        ), patch.object(app.core, "fetch_all_open_alarms", return_value=[alarm]), patch.object(
+            app.core, "close_alarms", return_value={"A"}
+        ), patch.object(
+            app.core, "verify_disposition", side_effect=verify_effect
+        ), patch.object(app.cfg, "append_audit") as audit:
+            try:
+                app._run_one_cycle(
+                    bot, "cookie", app.cfg.SHIFT_OPTIONS[0], 100, False, 10, dry_run=False
+                )
+            except app.core.ArgusError:
+                pass
+        return audit
+
+    def test_live_cycle_writes_audit_record(self) -> None:
+        audit = self._live_cycle(lambda *a, **k: ({"A"}, set()))
+
+        (records,), _ = audit.call_args
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["alarm_id"], "A")
+        self.assertEqual(records[0]["alarm_name"], "Alarm A")
+        self.assertEqual(records[0]["reason"], "FP")
+        self.assertEqual(records[0]["via"], "verdict")
+        self.assertIs(records[0]["verified"], True)
+
+    def test_audit_survives_verify_failure(self) -> None:
+        def boom(*a, **k):
+            raise app.core.ArgusError("timeout")
+
+        audit = self._live_cycle(boom)
+
+        (records,), _ = audit.call_args
+        self.assertEqual(records[0]["alarm_id"], "A")
+        self.assertIsNone(records[0]["verified"])
+
+    def test_dry_run_writes_no_audit(self) -> None:
+        bot = app.BotState()
+        bot.username = "analyst"
+        alarm = {"_id": "A", "alarm_name": "Alarm A", "severity": "low"}
+        rule = {"alarm_name_equals": "Alarm A", "reason": "FP"}
+        with patch.object(app.cfg, "load_whitelist", return_value=[rule]), patch.object(
+            app.cfg, "load_protect", return_value=[]
+        ), patch.object(app.core, "fetch_all_open_alarms", return_value=[alarm]), patch.object(
+            app.cfg, "append_audit"
+        ) as audit:
+            app._run_one_cycle(bot, "cookie", app.cfg.SHIFT_OPTIONS[0], 100, False, 10)
+
+        audit.assert_not_called()
+
+
+class AuditFileTests(unittest.TestCase):
+    def test_append_audit_writes_json_lines(self) -> None:
+        import json
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory(dir=os.getenv("TMPDIR")) as tmp:
+            path = os.path.join(tmp, "audit.jsonl")
+            with patch.object(app.cfg, "AUDIT_PATH", path):
+                app.cfg.append_audit([{"alarm_id": "A"}, {"alarm_id": "B"}])
+                app.cfg.append_audit([{"alarm_id": "C"}])
+                app.cfg.append_audit([])
+            with open(path, encoding="utf-8") as f:
+                ids = [json.loads(line)["alarm_id"] for line in f]
+
+        self.assertEqual(ids, ["A", "B", "C"])
 
 
 class WebSecurityTests(unittest.TestCase):

@@ -157,16 +157,13 @@ def _call_server_action(
     action: str,
     payload: Any,
     referer_path: str,
-    debug_log: Optional[Callable[[str], None]] = None,
     retry_transient: bool = True,
 ) -> Any:
     """POST server action + retry buat error transient (5xx / network).
     Balikin hasil sudah di-parse dari RSC.
 
     POST ke {origin}{referer_path} (path halaman list alarm), BUKAN root "/".
-    POST ke root kena 308 redirect di deployment asli.
-
-    debug_log: kalau diisi, dump raw respons (dipotong) buat inspeksi format."""
+    POST ke root kena 308 redirect di deployment asli."""
     url = _origin(base_url) + "/" + referer_path.lstrip("/")
     headers = _action_headers(base_url, cookie, action, referer_path)
     body = json.dumps(payload)
@@ -183,9 +180,6 @@ def _call_server_action(
                     "403 Forbidden — sesi kemungkinan expired atau Next-Action hash berubah."
                 )
             resp.raise_for_status()
-            if debug_log:
-                debug_log(f"DEBUG status={resp.status_code} len={len(resp.text)} "
-                          f"raw[:1000]=\n{resp.text[:1000]}")
             return parse_rsc_response(resp.text)
         except (ArgusParseError, ArgusAuthError):
             raise
@@ -387,19 +381,17 @@ def fetch_alarms_page(
     date_from: str = "",
     date_to: str = "",
     last_days: str = "1",
-    debug_log: Optional[Callable[[str], None]] = None,
 ) -> dict[str, Any]:
     payload = _build_fetch_payload(
         page, page_size, shift_time, status, date_from, date_to, last_days
     )
     result = _call_server_action(
         client, base_url, cookie, ACTION_FETCH, payload, referer_path=ALARM_PATH,
-        debug_log=debug_log,
     )
     if not isinstance(result, dict):
         raise ArgusError(
             f"Response fetch nggak sesuai format. Dapet tipe {type(result).__name__}, "
-            f"harusnya dict. Cek DEBUG dump di atas buat liat struktur aslinya."
+            "harusnya dict. Format response upstream kemungkinan berubah."
         )
     return result
 
@@ -422,7 +414,7 @@ def fetch_all_open_alarms(
     with scope as http:
         first = fetch_alarms_page(
             http, base_url, cookie, 1, page_size, shift_time, status,
-            date_from, date_to, last_days, debug_log=log,
+            date_from, date_to, last_days,
         )
         alarms.extend(first.get("data", []) or [])
         total_pages = int(first.get("totalPages", 1) or 1)

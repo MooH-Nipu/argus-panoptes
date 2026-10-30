@@ -20,7 +20,7 @@ import secrets
 import threading
 import time
 from collections import deque
-from datetime import date, datetime
+from datetime import datetime
 from functools import wraps
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -183,9 +183,6 @@ def validate_base_url(value: str) -> str:
 
 
 def validate_start_settings(form: Any, defaults: dict[str, Any]) -> dict[str, Any]:
-    shift = (form.get("shift_time") or "").strip()
-    if shift not in cfg.SHIFT_OPTIONS:
-        raise ValueError("Shift tidak valid.")
     interval = _to_int(form.get("poll_interval_seconds"), -1)
     if not MIN_POLL_INTERVAL <= interval <= MAX_POLL_INTERVAL:
         raise ValueError(f"Interval wajib {MIN_POLL_INTERVAL}-{MAX_POLL_INTERVAL} detik.")
@@ -200,31 +197,13 @@ def validate_start_settings(form: Any, defaults: dict[str, Any]) -> dict[str, An
     )
     if not 0 <= delay_min <= delay_max <= MAX_ACTION_DELAY:
         raise ValueError(f"Jeda aksi wajib 0-{MAX_ACTION_DELAY} detik dan minimum <= maksimum.")
-    date_from = (form.get("date_from") or "").strip()
-    date_to = (form.get("date_to") or "").strip()
-    if bool(date_from) != bool(date_to):
-        raise ValueError("Dari dan sampai tanggal wajib diisi berpasangan.")
-    if date_from:
-        try:
-            start_date, end_date = date.fromisoformat(date_from), date.fromisoformat(date_to)
-        except ValueError as exc:
-            raise ValueError("Format tanggal wajib YYYY-MM-DD.") from exc
-        if start_date > end_date:
-            raise ValueError("Dari tanggal tidak boleh setelah sampai tanggal.")
-    last_days = _to_int(form.get("last_days"), -1)
-    if not 1 <= last_days <= 365:
-        raise ValueError("N hari terakhir wajib 1-365.")
     return {
         **defaults,
-        "shift_time": shift,
         "poll_interval_seconds": interval,
         "max_close_per_cycle": max_close,
         "action_delay_min_seconds": delay_min,
         "action_delay_max_seconds": delay_max,
         "protect_high_severity": form.get("protect_high_severity") == "on",
-        "date_from": date_from,
-        "date_to": date_to,
-        "last_days": str(last_days),
         "dry_run": form.get("live_mode") != "on",
         "enable_suppress_fallback": form.get("enable_suppress_fallback") == "on",
     }
@@ -332,38 +311,34 @@ def logout():
 # ---------- Bot loop ----------
 
 def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
-    """Loop utama: sapu tiap interval sampai stop_event di-set (§8)."""
-    shift = settings["shift_time"]
+    """Loop utama: sapu tiap interval sampai stop_event di-set (§8).
+    Shift diambil dari jam sistem tiap awal siklus; range fetch = hari ini."""
     page_size = int(settings["page_size"])
 
     interval = int(settings["poll_interval_seconds"])
     protect_high = bool(settings["protect_high_severity"])
     max_close = int(settings["max_close_per_cycle"])
-    date_from = str(settings.get("date_from", "") or "")
-    date_to = str(settings.get("date_to", "") or "")
-    last_days = str(settings.get("last_days", "1") or "1")
     action_delay = (
         int(settings["action_delay_min_seconds"]),
         int(settings["action_delay_max_seconds"]),
     )
 
-    if date_from and date_to:
-        range_txt = f"tanggal {date_from} s/d {date_to}"
-    else:
-        range_txt = f"{last_days} hari terakhir"
     limit_txt = "tanpa batas" if max_close <= 0 else f"maks {max_close}/sapu"
-    bot.log(f"Bot start. Shift='{shift}', range={range_txt}, interval={interval}s, "
+    bot.log(f"Bot start. Shift otomatis (jam sistem), range=hari ini, interval={interval}s, "
             f"protect_high_severity={'ON' if protect_high else 'OFF'}, "
             f"close {limit_txt}, jeda aksi random={action_delay[0]}-{action_delay[1]}s.")
 
     try:
         while not bot.stop_event.is_set():
             cycle_start = time.time()
+            shift = cfg.current_shift()
+            bot.log(f"Siklus mulai. Shift aktif: {shift}.")
             _run_one_cycle(bot, cookie, shift, page_size, protect_high,
-                           max_close, date_from, date_to, last_days,
-                           bool(settings.get("dry_run", True)),
-                           bool(settings.get("enable_suppress_fallback", False)),
-                           action_delay)
+                           max_close, last_days=cfg.FETCH_LAST_DAYS,
+                           dry_run=bool(settings.get("dry_run", True)),
+                           enable_suppress_fallback=bool(
+                               settings.get("enable_suppress_fallback", False)),
+                           action_delay=action_delay)
 
             with bot.lock:
                 bot.stats["cycles"] += 1
@@ -430,6 +405,7 @@ def _run_one_cycle(
     my_email = core._norm(bot.username)
     to_close: dict[tuple[str, str], list[str]] = {}
     skip_take_ids: set[str] = set()
+    names: dict[str, str] = {}
     n_skip = 0
     n_leave = 0
     n_other = 0
@@ -451,6 +427,7 @@ def _run_one_cycle(
             if taker_email and taker_email == my_email:
                 skip_take_ids.add(aid)
             to_close.setdefault((disposition, reason), []).append(aid)
+            names[aid] = str(name)
         elif action == "skip":
             n_skip += 1
             bot.log(f"SKIP [{aid}] {name} — {reason}")
@@ -522,44 +499,56 @@ def _run_one_cycle(
             wait=bot.stop_event.wait, action_delay=action_delay,
             delay_before_first=group_index > 0,
         )
-        verified, missing = core.verify_disposition(
-            bot.base_url, cookie, sorted(submitted), shift, page_size=page_size, log=bot.log,
-            date_from=date_from, date_to=date_to, last_days=last_days,
-            disposition=disposition,
-        )
-        bot.log(
-            f"  Verified {len(verified)}/{len(submitted)} pindah ke tab {disposition}."
-        )
+        # Audit di finally: mutation yang udah kekirim tetap tercatat walau
+        # verify error/Stop. verified=None = belum sempat diverifikasi.
+        verified: Optional[set[str]] = None
+        try:
+            verified, missing = core.verify_disposition(
+                bot.base_url, cookie, sorted(submitted), shift, page_size=page_size,
+                log=bot.log, date_from=date_from, date_to=date_to, last_days=last_days,
+                disposition=disposition,
+            )
+            bot.log(
+                f"  Verified {len(verified)}/{len(submitted)} pindah ke tab {disposition}."
+            )
+            use_suppress = (
+                disposition == core.STATUS_FALSE_POSITIVE and enable_suppress_fallback
+            )
+            if missing and use_suppress and not should_stop():
+                bot.log("  Tunggu 2s lalu verifikasi ulang sebelum fallback suppress.")
+                if not bot.stop_event.wait(2):
+                    verified_retry, missing = core.verify_false_positive(
+                        bot.base_url, cookie, sorted(missing), shift, page_size=page_size,
+                        log=bot.log, date_from=date_from, date_to=date_to,
+                        last_days=last_days,
+                    )
+                    verified |= verified_retry
+        finally:
+            _audit(bot, submitted, names, disposition, reason, verified, "verdict")
 
         # Fallback: alarm yang silent-fail di jalur FP 3-argumen (biasanya alarm
         # grup / punya "Similar Alerts") coba lewat jalur suppress 4-argumen.
         # Keterkaitan grup nggak keliatan di fetch, jadi kita nggak deteksi di
         # depan — pakai `missing` dari verify sebagai sinyal butuh suppress.
         # Suppress fallback hanya valid untuk jalur False Positive.
-        use_suppress = disposition == core.STATUS_FALSE_POSITIVE and enable_suppress_fallback
-        if missing and use_suppress and not should_stop():
-            bot.log("  Tunggu 2s lalu verifikasi ulang sebelum fallback suppress.")
-            if bot.stop_event.wait(2):
-                break
-            verified_retry, missing = core.verify_false_positive(
-                bot.base_url, cookie, sorted(missing), shift, page_size=page_size,
-                log=bot.log, date_from=date_from, date_to=date_to, last_days=last_days,
-            )
-            verified |= verified_retry
         if missing and use_suppress and not should_stop():
             miss_ids = sorted(missing)
             bot.log(f"  {len(miss_ids)} alarm nggak pindah — coba jalur suppress.")
-            core.suppress_alarms(
+            suppressed = core.suppress_alarms(
                 bot.base_url, cookie, miss_ids, reason, log=bot.log,
                 should_stop=should_stop,
                 skip_take_ids=skip_take_ids,
                 confirm_owner=confirm_owner,
                 wait=bot.stop_event.wait, action_delay=action_delay,
             )
-            verified2, missing2 = core.verify_false_positive(
-                bot.base_url, cookie, miss_ids, shift, page_size=page_size, log=bot.log,
-                date_from=date_from, date_to=date_to, last_days=last_days,
-            )
+            verified2: Optional[set[str]] = None
+            try:
+                verified2, missing2 = core.verify_false_positive(
+                    bot.base_url, cookie, miss_ids, shift, page_size=page_size, log=bot.log,
+                    date_from=date_from, date_to=date_to, last_days=last_days,
+                )
+            finally:
+                _audit(bot, suppressed, names, disposition, reason, verified2, "suppress")
             bot.log(f"  Suppress verified {len(verified2)}/{len(miss_ids)} pindah ke tab FP.")
             if missing2:
                 bot.log(f"  WARNING: {len(missing2)} tetap nggak pindah "
@@ -568,6 +557,33 @@ def _run_one_cycle(
 
         with bot.lock:
             bot.stats["closed"] += len(verified)
+
+
+def _audit(
+    bot: BotState,
+    ids: set[str],
+    names: dict[str, str],
+    disposition: str,
+    reason: str,
+    verified: Optional[set[str]],
+    via: str,
+) -> None:
+    """Catat mutation yang terkirim ke audit.jsonl. Gagal tulis = raise
+    (worker berhenti) — lebih baik stop daripada close tanpa jejak."""
+    ts = datetime.now().isoformat(timespec="seconds")
+    cfg.append_audit([
+        {
+            "ts": ts,
+            "user": bot.username,
+            "alarm_id": aid,
+            "alarm_name": names.get(aid, ""),
+            "disposition": disposition,
+            "reason": reason,
+            "via": via,
+            "verified": None if verified is None else aid in verified,
+        }
+        for aid in sorted(ids)
+    ])
 
 
 # ---------- Routes: dashboard ----------
@@ -585,7 +601,7 @@ def index():
     return render_template(
         "index.html",
         running=bot.running if bot else False,
-        shift_options=cfg.SHIFT_OPTIONS,
+        current_shift=cfg.current_shift(),
         settings=settings,
         username=session.get("username", ""),
         base_url=session.get("base_url", ""),

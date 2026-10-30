@@ -11,6 +11,7 @@ import json
 import os
 import tempfile
 import threading
+from datetime import datetime
 from typing import Any
 
 import yaml
@@ -20,6 +21,7 @@ BASE_DIR = os.getenv("CONFIG_DIR", os.path.dirname(os.path.abspath(__file__)))
 SETTINGS_PATH = os.path.join(BASE_DIR, "settings.yaml")
 WHITELIST_PATH = os.path.join(BASE_DIR, "whitelist.yaml")
 PROTECT_PATH = os.path.join(BASE_DIR, "protect_list.yaml")
+AUDIT_PATH = os.path.join(BASE_DIR, "audit.jsonl")
 _CONFIG_LOCK = threading.RLock()
 
 
@@ -38,10 +40,14 @@ SHIFT_OPTIONS = [
     "3 (16:00 - 00:00)",
 ]
 
+
+def current_shift(now: datetime | None = None) -> str:
+    """Shift aktif dari jam sistem lokal (blok 8 jam, mulai 00:00)."""
+    return SHIFT_OPTIONS[(now or datetime.now()).hour // 8]
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     "poll_interval_seconds": 300,
     "protect_high_severity": True,
-    "shift_time": SHIFT_OPTIONS[0],
     "page_size": 100,
     # Maks alarm yang di-close dalam SATU sapu (lintas semua grup reason).
     # 0 = tanpa batas (close semua yang match). Beda dari batch_size yang cuma
@@ -51,13 +57,15 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "action_delay_max_seconds": 7,
     "dry_run": True,
     "enable_suppress_fallback": False,
-    # Rentang waktu fetch alarm. date_from/date_to (format YYYY-MM-DD) di-AND
-    # sama shift_time. Kalau dua-duanya keisi -> pakai date range, last_days
-    # diabaikan. Kalau kosong -> fallback ke last_days (jumlah hari terakhir).
-    "date_from": "",
-    "date_to": "",
-    "last_days": "1",
 }
+
+# Rentang fetch tetap: hari ini (last_days=1) + shift aktif dari jam sistem.
+FETCH_LAST_DAYS = "1"
+
+# Panjang minimum substring alarm_name_contains di whitelist. Substring
+# pendek (mis. "error") bisa nyapu hampir semua alarm.
+# ponytail: guard panjang doang; kalau masih kebobolan, tambah preview match.
+MIN_CONTAINS_LEN = 6
 
 # Field matching yang valid per tipe rule (dipakai buat validasi input UI).
 WHITELIST_FIELDS = [
@@ -115,6 +123,17 @@ def save_settings(settings: dict[str, Any]) -> None:
         _write_yaml(SETTINGS_PATH, current)
 
 
+def append_audit(records: list[dict[str, Any]]) -> None:
+    """Append record ke audit log mutation (JSON Lines, append-only)."""
+    if not records:
+        return
+    lines = "".join(
+        json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in records
+    )
+    with _CONFIG_LOCK, open(AUDIT_PATH, "a", encoding="utf-8") as f:
+        f.write(lines)
+
+
 # ---------- Rules (whitelist & protect) ----------
 
 def _clean_rule(rule: dict[str, Any], allowed_fields: list[str]) -> dict[str, Any]:
@@ -135,6 +154,11 @@ def _clean_rule(rule: dict[str, Any], allowed_fields: list[str]) -> dict[str, An
 
 def clean_whitelist_rule(rule: dict[str, Any]) -> dict[str, Any]:
     cleaned = _clean_rule(rule, WHITELIST_FIELDS)
+    contains = cleaned.get("alarm_name_contains", "")
+    if contains and len(contains) < MIN_CONTAINS_LEN:
+        raise ValueError(
+            f"alarm_name_contains minimal {MIN_CONTAINS_LEN} karakter (terlalu luas)."
+        )
     disposition = str(rule.get("disposition", "False Positive")).strip()
     if disposition not in WHITELIST_DISPOSITIONS:
         raise ValueError("Disposition whitelist tidak valid.")
