@@ -1,73 +1,179 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Argus Panoptes</title>
+  <title>Console · Argus Panoptes</title>
+  {% include "_theme.html" %}
   <style>
-    :root{color-scheme:dark;--bg:#080d14;--panel:#111923;--panel2:#0c131c;--border:#293646;--text:#e5ebf3;--muted:#93a4b7;--faint:#697b90;--blue:#4f8fdc;--green:#46b97a;--amber:#d8a448;--red:#d05b68}
-    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-    header{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 20px;background:#0d151f;border-bottom:1px solid var(--border)}
-    h1,h2,p{margin-top:0}.brand h1{margin:0;font-size:15px}.brand p{margin:2px 0 0;color:var(--muted);font-size:11px}.actions{display:flex;align-items:center;gap:10px}.identity{color:var(--muted);font-size:11px}.wrap{width:min(1100px,100%);margin:auto;padding:18px}.grid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,.6fr);gap:14px}.stack{display:grid;gap:14px}.card{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:16px}.card h2{margin-bottom:12px;font-size:13px;letter-spacing:.03em}.eyebrow{color:#75a9e7;font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase}.row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.field{margin-bottom:11px}label{display:block;margin-bottom:5px;color:#c3cedb;font-size:11px;font-weight:650}input,select{width:100%;min-height:40px;padding:8px 10px;background:var(--panel2);border:1px solid #3c4b5e;border-radius:5px;color:var(--text);font:inherit}input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid #82b7f4;outline-offset:2px}.hint{margin:5px 0 0;color:var(--faint);font-size:10px}.toggle{display:flex;align-items:flex-start;gap:9px;padding:9px 0}.toggle input{width:16px;min-height:16px;margin:2px 0}.toggle label{margin:0}.toggle small{display:block;margin-top:2px;color:var(--faint);font-weight:400}.danger-zone{margin:8px 0 12px;padding:10px 12px;border:1px solid #65323a;background:#251419;border-radius:5px}.danger-zone .toggle{padding:0}.buttons{display:flex;gap:8px}.button,button{min-height:40px;padding:8px 14px;border:1px solid transparent;border-radius:5px;font:inherit;font-weight:700;cursor:pointer;text-decoration:none}.primary{background:var(--blue);color:#07111d;border-color:#75a9e7}.secondary{background:#182433;color:var(--text);border-color:#405169}.danger{background:#33181e;color:#ffc6cc;border-color:#75333d}button:disabled{opacity:.45;cursor:not-allowed}.status-line{display:flex;align-items:center;gap:8px;margin-bottom:14px;color:var(--muted);font-size:12px}.dot{width:8px;height:8px;border-radius:50%;background:#657589}.dot.on{background:var(--green)}.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.stat{padding:10px;background:var(--panel2);border:1px solid var(--border);border-radius:5px}.num{font:700 21px/1.1 ui-monospace,SFMono-Regular,Consolas,monospace}.lbl{margin-top:3px;color:var(--muted);font-size:9px;letter-spacing:.08em;text-transform:uppercase}.closed .num{color:var(--green)}.skipped .num{color:var(--amber)}.cycles .num{color:#75a9e7}.log-card{margin-top:14px}#log{height:360px;overflow:auto;padding:12px;background:#05090e;border:1px solid var(--border);border-radius:5px;color:#c8d3df;font:11px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap}.notice{display:none;margin-bottom:12px;padding:10px 12px;border:1px solid #74333d;background:#2b1519;border-radius:5px;color:#ffc6cc;font-size:12px}.mode{display:inline-block;margin-left:7px;padding:2px 6px;border:1px solid var(--border);border-radius:3px;color:var(--muted);font-size:9px;text-transform:uppercase}
-    @media(max-width:760px){header{position:static;align-items:flex-start;flex-direction:column}.actions{width:100%;flex-wrap:wrap}.identity{width:100%}.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}.wrap{padding:12px}.buttons{flex-direction:column}.button,button{min-height:44px;text-align:center}.stats{grid-template-columns:repeat(4,1fr)}.num{font-size:17px}}
-    @media(max-width:480px){.stats{grid-template-columns:repeat(2,1fr)}}
-    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+    .wrap{width:min(1180px,100%);margin:auto;padding:20px}
+    .hud{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:center;margin-bottom:16px}
+    .reactor{position:relative;width:132px;height:132px;flex:none;display:grid;place-items:center;justify-self:center}
+    .reactor .ring{position:absolute;inset:0;border-radius:50%;border:2px dashed var(--line2)}
+    .reactor .core{position:relative;width:96px;height:96px;border-radius:50%;display:grid;place-items:center;text-align:center;background:radial-gradient(circle at 50% 40%,#122233,#060a10 70%);border:1px solid var(--line2);font:800 11px/1.3 var(--mono);letter-spacing:.1em;color:var(--muted)}
+    .reactor .core b{display:block;font-size:18px;letter-spacing:.04em;color:var(--text)}
+    body.running .reactor .ring{border-color:var(--green);animation:spin 9s linear infinite}
+    body.running .reactor .core{color:var(--green);box-shadow:0 0 34px rgba(60,255,160,.25),inset 0 0 22px rgba(60,255,160,.12)}
+    body.live{--accent:var(--red)}
+    body.live.running .reactor .ring{border-color:var(--red)}
+    body.live.running .reactor .core{color:var(--red);box-shadow:0 0 38px rgba(255,93,108,.3),inset 0 0 22px rgba(255,93,108,.14)}
+    .tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+    .tile{padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+    .tile .n{font:800 28px/1 var(--mono);font-variant-numeric:tabular-nums}
+    .tile .l{margin-top:6px;color:var(--faint);font:700 10px var(--mono);letter-spacing:.14em;text-transform:uppercase}
+    .tile.closed .n{color:var(--green)}.tile.skipped .n{color:var(--amber)}.tile.left .n{color:var(--cyan)}.tile.cycles .n{color:#b28cff}
+    .status{display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--muted);font:12px var(--mono)}
+    .dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
+    body.running .dot{background:var(--green);box-shadow:0 0 10px var(--green);animation:blink 1.4s steps(1) infinite}
+    .grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:16px;align-items:start}
+    .stack{display:grid;gap:16px}
+    .shifts{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+    .shift{padding:9px 12px;border:1px solid var(--line2);border-radius:9px;background:var(--panel2);font:12px var(--mono)}
+    .shift b{display:block;color:var(--green);font-size:14px}
+    .shift.grace b{color:var(--amber)}
+    .shift small{color:var(--faint)}
+    .row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}
+    .opt{display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-top:1px solid var(--line)}
+    .opt label{margin:0;color:var(--text);font:600 13px var(--sans);letter-spacing:0}
+    .opt small{display:block;margin-top:2px;color:var(--faint);font-weight:400}
+    .arm{margin:14px 0;padding:13px 14px;border:1px solid #4a2029;border-radius:10px;background:repeating-linear-gradient(-45deg,rgba(255,93,108,.06) 0 10px,transparent 10px 20px),#140a0e}
+    .arm .opt{border:0;padding:0}
+    .arm label{color:#ffc2c9}
+    .arm small{color:#c99aa2}
+    .actions{display:flex;gap:10px}
+    .actions .btn.go{flex:1}
+    body.live .btn.go{border-color:var(--red);background:#b8192b;color:#fff;box-shadow:0 0 24px rgba(255,93,108,.35)}
+    .mode{float:right;padding:3px 9px;border:1px solid var(--line2);border-radius:999px;color:var(--muted);font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+    body.live .mode{border-color:var(--red);color:var(--red)}
+    .ach-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+    .ach-count{font:800 30px/1 var(--mono);color:var(--amber);font-variant-numeric:tabular-nums;text-shadow:0 0 18px rgba(255,181,71,.35)}
+    .ach-title{margin:8px 0 2px;font-weight:750;font-size:15px}
+    .ach-desc{margin:0 0 12px;color:var(--muted);font-size:12px;font-style:italic}
+    .bar{height:10px;border:1px solid var(--line2);border-radius:999px;background:var(--panel2);overflow:hidden}
+    .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--amber),#ffe08a);box-shadow:0 0 12px rgba(255,181,71,.6);transition:width .6s}
+    .ladder{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:6px}
+    .ladder li{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:center;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);font-size:12px;color:var(--faint)}
+    .ladder li .i{font:800 12px var(--mono);text-align:center}
+    .ladder li:not(.on) .i{color:var(--muted)}
+    .ladder li .at{font:11px var(--mono)}
+    .ladder li.on{color:var(--text);border-color:#4d3a1a;background:linear-gradient(90deg,rgba(255,181,71,.1),transparent)}
+    .ladder li.on .i{color:var(--amber)}
+    .ladder li.next{border-style:dashed;border-color:var(--amber)}
+    .log-panel{margin-top:16px}
+    .log-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+    .lights{display:flex;gap:6px}.lights i{width:10px;height:10px;border-radius:50%}.lights i:nth-child(1){background:#ff5d6c}.lights i:nth-child(2){background:#ffb547}.lights i:nth-child(3){background:#3cffa0}
+    #log span{display:block;padding-left:2ch;text-indent:-2ch}
+    #log{height:380px;overflow:auto;margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:9px;background:#03060a;color:#a9bccf;font:12px/1.65 var(--mono);white-space:pre-wrap}
+    #log .ok{color:var(--green)}#log .warn{color:var(--amber)}#log .err{color:var(--red)}#log .dim{color:var(--faint)}#log .dry{color:var(--cyan)}
+    .toast{position:fixed;right:20px;bottom:20px;z-index:50;max-width:340px;padding:14px 16px;border:1px solid var(--amber);border-radius:12px;background:#140f05;box-shadow:0 0 40px rgba(255,181,71,.35);visibility:hidden;opacity:0;transform:translateY(20px);transition:transform .4s,opacity .4s,visibility .4s}
+    .toast.show{visibility:visible;opacity:1;transform:none}
+    .toast b{display:block;color:var(--amber);font:800 11px var(--mono);letter-spacing:.14em;text-transform:uppercase}
+    .toast span{display:block;margin-top:4px;font-weight:700}
+    @media(max-width:900px){.grid{grid-template-columns:1fr}}
+    @media(max-width:640px){.toast{left:12px;right:12px;max-width:none;bottom:calc(12px + env(safe-area-inset-bottom))}}
+    @media(max-width:640px){.hud{grid-template-columns:1fr;justify-items:center}.hud>div:not(.reactor){width:100%}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.row{grid-template-columns:1fr}.actions{flex-direction:column}.wrap{padding:12px}}
   </style>
 </head>
 <body>
-<header>
-  <div class="brand"><h1>Argus Panoptes</h1><p>Controlled alarm triage runner</p></div>
-  <div class="actions">
-    <span class="identity">{{ username }}{% if base_url %} · {{ base_url }}{% endif %}</span>
-    <a class="button secondary" href="{{ url_for('rules') }}">Rules</a>
-    <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger" type="submit">Logout</button></form>
-  </div>
+<header class="topbar">
+  <a class="brand" href="{{ url_for('index') }}"><span class="logo" aria-hidden="true">AC</span><span><b>ARGUS PANOPTES<span class="cursor" aria-hidden="true"></span></b><small>alarm triage console</small></span></a>
+  <nav class="nav">
+    <span class="chip" title="Signed-in account and upstream target">{{ username }}{% if base_url %} · {{ base_url }}{% endif %}</span>
+    <a class="btn sm" href="{{ url_for('rules') }}">Rules</a>
+    <form method="post" action="{{ url_for('logout') }}" style="margin:0"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn sm bad" type="submit">Logout</button></form>
+  </nav>
 </header>
+
 <main class="wrap">
-  <div id="errBox" class="notice" role="alert" aria-live="assertive"></div>
+  <div id="errBox" class="alert" role="alert" aria-live="assertive" hidden></div>
+
+  <section class="hud" aria-label="Runtime status">
+    <div class="reactor" aria-hidden="true"><div class="ring"></div><div class="core"><span><b id="coreState">IDLE</b><span id="coreSub">standby</span></span></div></div>
+    <div>
+      <div class="tiles">
+        <div class="tile closed" title="Verified closes this run"><div class="n" id="s_closed">0</div><div class="l">Closed</div></div>
+        <div class="tile skipped"><div class="n" id="s_skipped">0</div><div class="l">Skipped</div></div>
+        <div class="tile left"><div class="n" id="s_left">0</div><div class="l">Manual</div></div>
+        <div class="tile cycles"><div class="n" id="s_cycles">0</div><div class="l">Cycles</div></div>
+      </div>
+      <div class="status"><span class="dot"></span><span id="statusText" role="status">Bot is not running.</span></div>
+    </div>
+  </section>
+
   <div class="grid">
-    <section class="card" aria-labelledby="control-title">
-      <div class="eyebrow">Run configuration</div>
-      <h2 id="control-title">Kontrol bot <span class="mode" id="modeBadge">dry run default</span></h2>
+    <section class="panel" aria-labelledby="control-title">
+      <p class="eyebrow">Run configuration</p>
+      <h2 id="control-title">Mission control <span class="mode" id="modeBadge">dry run</span></h2>
+
+      <div class="label">Shift window (system clock)</div>
+      <div class="shifts">
+        {% for shift, date_from, date_to in shift_windows %}
+        <div class="shift{% if not loop.last %} grace{% endif %}"><b>{{ shift }}</b><small>{% if not loop.last %}grace sweep · {% endif %}{{ date_from }}{% if date_to != date_from %} <span class="arw">→</span> {{ date_to }}{% endif %}</small></div>
+        {% endfor %}
+      </div>
+      <p class="hint" style="margin:-8px 0 16px">Recalculated every cycle. The previous shift is also swept during the first hour of a new shift.</p>
+
       <form id="startForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div class="field"><span class="eyebrow">Shift aktif</span><div class="num" style="font-size:15px">{{ current_shift }}</div><p class="hint">Otomatis dari jam sistem, range hari ini. Dihitung ulang tiap siklus.</p></div>
         <div class="row">
-          <div class="field"><label for="poll_interval_seconds">Interval sapu (detik)</label><input type="number" name="poll_interval_seconds" id="poll_interval_seconds" min="30" max="86400" value="{{ settings.poll_interval_seconds }}"></div>
-          <div class="field"><label for="max_close_per_cycle">Maks close per sapu</label><input type="number" name="max_close_per_cycle" id="max_close_per_cycle" min="1" max="500" value="{{ settings.max_close_per_cycle }}"><p class="hint">Hard cap 1–500. Unlimited dihapus.</p></div>
+          <div><label for="poll_interval_seconds">Sweep interval (s)</label><input type="number" name="poll_interval_seconds" id="poll_interval_seconds" min="30" max="86400" value="{{ settings.poll_interval_seconds }}"></div>
+          <div><label for="max_close_per_cycle">Max close per sweep</label><input type="number" name="max_close_per_cycle" id="max_close_per_cycle" min="1" max="500" value="{{ settings.max_close_per_cycle }}"><p class="hint">Hard cap 1–500.</p></div>
         </div>
         <div class="row">
-          <div class="field"><label for="action_delay_min_seconds">Jeda aksi minimum (detik)</label><input type="number" name="action_delay_min_seconds" id="action_delay_min_seconds" min="0" max="300" value="{{ settings.action_delay_min_seconds }}"></div>
-          <div class="field"><label for="action_delay_max_seconds">Jeda aksi maksimum (detik)</label><input type="number" name="action_delay_max_seconds" id="action_delay_max_seconds" min="0" max="300" value="{{ settings.action_delay_max_seconds }}"><p class="hint">Satu range random untuk jeda setelah Take sebelum verdict dan antar-alarm.</p></div>
+          <div><label for="action_delay_min_seconds">Min action delay (s)</label><input type="number" name="action_delay_min_seconds" id="action_delay_min_seconds" min="0" max="300" value="{{ settings.action_delay_min_seconds }}"></div>
+          <div><label for="action_delay_max_seconds">Max action delay (s)</label><input type="number" name="action_delay_max_seconds" id="action_delay_max_seconds" min="0" max="300" value="{{ settings.action_delay_max_seconds }}"><p class="hint">Random pause after take and between alarms.</p></div>
         </div>
-        <div class="toggle"><input type="checkbox" name="protect_high_severity" id="protect_high_severity" {% if settings.protect_high_severity %}checked{% endif %}><label for="protect_high_severity">Protect high &amp; critical<small>Opsional. Whitelist tetap mengikuti keputusan operator.</small></label></div>
-        <div class="toggle"><input type="checkbox" name="enable_suppress_fallback" id="enable_suppress_fallback" {% if settings.enable_suppress_fallback %}checked{% endif %}><label for="enable_suppress_fallback">Enable suppress fallback<small>Off default. Dipakai hanya setelah verifikasi ulang.</small></label></div>
-        <div class="danger-zone"><div class="toggle"><input type="checkbox" name="live_mode" id="live_mode"><label for="live_mode">LIVE mode — izinkan mutation upstream<small>Jika tidak dicentang, bot hanya fetch, evaluate, dan log kandidat.</small></label></div></div>
-        <div class="buttons"><button type="submit" class="primary" id="btnStart">Start review run</button><button type="button" class="danger" id="btnStop" disabled>Stop</button></div>
+        <div class="opt"><input class="switch" type="checkbox" name="protect_high_severity" id="protect_high_severity" {% if settings.protect_high_severity %}checked{% endif %}><label for="protect_high_severity">Protect high &amp; critical<small>Never auto-close high or critical severity, even when a whitelist rule matches.</small></label></div>
+        <div class="opt"><input class="switch" type="checkbox" name="enable_suppress_fallback" id="enable_suppress_fallback" {% if settings.enable_suppress_fallback %}checked{% endif %}><label for="enable_suppress_fallback">Suppress fallback<small>Off by default. Used only after re-verification fails.</small></label></div>
+        <div class="arm"><div class="opt"><input class="switch danger" type="checkbox" name="live_mode" id="live_mode"><label for="live_mode">LIVE mode: allow upstream mutations<small>Off = fetch, evaluate, and log candidates only.</small></label></div></div>
+        <div class="actions"><button type="submit" class="btn go" id="btnStart">Start dry run</button><button type="button" class="btn bad" id="btnStop" disabled>Stop</button></div>
       </form>
     </section>
+
     <aside class="stack">
-      <section class="card" aria-labelledby="status-title"><div class="eyebrow">Runtime</div><h2 id="status-title">Status</h2><div class="status-line"><span class="dot" id="dot"></span><span id="statusText">Bot belum jalan.</span></div><div class="stats"><div class="stat closed"><div class="num" id="s_closed">0</div><div class="lbl">Closed</div></div><div class="stat skipped"><div class="num" id="s_skipped">0</div><div class="lbl">Skipped</div></div><div class="stat"><div class="num" id="s_left">0</div><div class="lbl">Manual</div></div><div class="stat cycles"><div class="num" id="s_cycles">0</div><div class="lbl">Cycles</div></div></div></section>
-      <section class="card"><div class="eyebrow">Policy</div><h2>Operator owns automation rules</h2><p style="margin:0;color:var(--muted);font-size:12px">Rule yang kamu simpan menentukan disposition False Positive atau Exclusion. Protect list selalu menang jika keduanya match.</p></section>
-      <section class="card" aria-labelledby="ach-title"><div class="eyebrow">Achievement</div><h2 id="ach-title">Alarm verdicted</h2><div class="num" id="achCount" style="color:#d8a448">0</div><div id="achTitle" style="margin:4px 0 2px;font-weight:700">Fresh Intern Energy</div><p class="hint" id="achDesc" style="margin:0 0 10px;font-style:italic"></p><div role="progressbar" id="achBar" aria-labelledby="ach-title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="height:8px;background:var(--panel2);border:1px solid var(--border);border-radius:4px;overflow:hidden"><div id="achFill" style="height:100%;width:0;background:#d8a448"></div></div><p class="hint" id="achNext">Next: Alarm Janitor @ 1,000</p><p class="hint" id="achUnlocked"></p></section>
+      <section class="panel" aria-labelledby="ach-title" style="--accent:var(--amber)">
+        <p class="eyebrow">Achievements</p>
+        <div class="ach-head"><h2 id="ach-title" style="margin:0">Alarms verdicted</h2><div class="ach-count" id="achCount">0</div></div>
+        <div class="ach-title" id="achTitle">Fresh Intern Energy</div>
+        <p class="ach-desc" id="achDesc"></p>
+        <div class="bar" role="progressbar" id="achBar" aria-labelledby="ach-title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="achFill"></i></div>
+        <p class="hint" id="achNext"></p>
+        <ul class="ladder" id="achLadder" aria-label="Achievement ladder"></ul>
+      </section>
+      <section class="panel">
+        <p class="eyebrow">Policy</p>
+        <h2>You own the rules</h2>
+        <p style="margin:0;color:var(--muted);font-size:13px">Your rules decide False Positive or Exclusion. Protect rules always win when both match. Every mutation is written to <span class="mono">audit.jsonl</span>.</p>
+      </section>
     </aside>
   </div>
-  <section class="card log-card" aria-labelledby="log-title"><div class="eyebrow">Evidence</div><h2 id="log-title">Live log</h2><div id="log" role="log" aria-live="polite">Menunggu run...</div></section>
+
+  <section class="panel log-panel" aria-labelledby="log-title">
+    <div class="log-head"><div><p class="eyebrow">Evidence</p><h2 id="log-title" style="margin:0">Live log</h2></div><div class="lights" aria-hidden="true"><i></i><i></i><i></i></div></div>
+    <pre id="log" role="log" aria-live="polite">Waiting for a run...</pre>
+  </section>
 </main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"><b>★ Achievement unlocked</b><span id="toastText"></span><small id="toastDesc" style="display:block;margin-top:2px;color:var(--muted);font-size:12px"></small></div>
+
 <script>
   const csrfToken={{ csrf_token()|tojson }};
-  const errBox=document.getElementById('errBox'),btnStart=document.getElementById('btnStart'),btnStop=document.getElementById('btnStop'),logEl=document.getElementById('log'),dot=document.getElementById('dot'),statusText=document.getElementById('statusText'),liveMode=document.getElementById('live_mode'),modeBadge=document.getElementById('modeBadge');
-  let cooldown=0,botRunning=false;
-  function showErr(msg){errBox.textContent=msg;errBox.style.display=msg?'block':'none'}
-  function renderMode(){modeBadge.textContent=liveMode.checked?'live mutation':'dry run';modeBadge.style.color=liveMode.checked?'#ffc6cc':'#93a4b7';btnStart.textContent=liveMode.checked?'Start LIVE run':'Start review run'}
-  function renderStatus(){dot.className='dot'+(botRunning?' on':'');statusText.textContent=!botRunning?'Bot belum jalan.':cooldown>0?`Bot jalan · siklus berikutnya ${cooldown}s`:'Bot jalan · menyapu alarm...'}
+  const $=id=>document.getElementById(id);
+  const errBox=$('errBox'),btnStart=$('btnStart'),btnStop=$('btnStop'),logEl=$('log'),statusText=$('statusText'),liveMode=$('live_mode'),modeBadge=$('modeBadge');
+  let cooldown=0,botRunning=false,lastLogKey='',lastAch=null;
+  function showErr(msg){errBox.textContent=msg;errBox.hidden=!msg}
+  function renderMode(){const live=liveMode.checked;document.body.classList.toggle('live',live);modeBadge.textContent=live?'live mutation':'dry run';btnStart.textContent=live?'Start LIVE run':'Start dry run'}
+  function renderStatus(){document.body.classList.toggle('running',botRunning);$('coreState').textContent=botRunning?(cooldown>0?'WAIT':'SWEEP'):'IDLE';$('coreSub').textContent=botRunning?(cooldown>0?cooldown+'s':'working'):'standby';statusText.textContent=!botRunning?'Bot is not running.':cooldown>0?`Running · next cycle in ${cooldown}s`:'Running · sweeping alarms...'}
+  function cls(line){return /ERROR|FAILED|AUTH/.test(line)?'err':/WARNING|SKIP|LEAVE|deferred/.test(line)?'warn':/DRY RUN/.test(line)?'dry':/ ok |ok \(|Verified|verified/.test(line)?'ok':/Random delay|page \d/.test(line)?'dim':''}
+  function renderLogs(lines){const key=lines.length+'|'+lines[lines.length-1];if(key===lastLogKey)return;lastLogKey=key;const atBottom=logEl.scrollHeight-logEl.scrollTop-logEl.clientHeight<40;logEl.replaceChildren(...lines.map(l=>{const s=document.createElement('span');s.className=cls(l);s.textContent=l;return s}));if(atBottom)logEl.scrollTop=logEl.scrollHeight}
   liveMode.addEventListener('change',renderMode);renderMode();
   setInterval(()=>{if(botRunning&&cooldown>0){cooldown--;renderStatus()}},1000);
-  document.getElementById('startForm').addEventListener('submit',async e=>{e.preventDefault();showErr('');if(liveMode.checked&&!confirm('Mulai LIVE mode? Alarm yang match whitelist dapat dimutasi di upstream.'))return;btnStart.disabled=true;try{const res=await fetch('/start',{method:'POST',headers:{'X-CSRF-Token':csrfToken},body:new FormData(e.target)}),data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||'Gagal start.')}catch(err){showErr(err.message);btnStart.disabled=false}});
-  btnStop.addEventListener('click',async()=>{btnStop.disabled=true;try{const res=await fetch('/stop',{method:'POST',headers:{'X-CSRF-Token':csrfToken}}),data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||'Gagal stop.')}catch(err){showErr(err.message);btnStop.disabled=false}});
-  async function poll(){try{const res=await fetch('/status');if(res.redirected){location.href=res.url;return}const s=await res.json();for(const k of ['closed','skipped','left','cycles'])document.getElementById('s_'+k).textContent=s.stats?.[k]??0;if(s.logs?.length){const atBottom=logEl.scrollHeight-logEl.scrollTop-logEl.clientHeight<40;logEl.textContent=s.logs.join('\n');if(atBottom)logEl.scrollTop=logEl.scrollHeight}botRunning=!!s.running;cooldown=s.cooldown??0;renderStatus();btnStart.disabled=botRunning;btnStop.disabled=!botRunning}catch(err){showErr('Status tidak tersedia: '+err.message)}}
+  $('startForm').addEventListener('submit',async e=>{e.preventDefault();showErr('');if(liveMode.checked&&!confirm('Start LIVE mode? Alarms matching the whitelist may be mutated in upstream.'))return;btnStart.disabled=true;try{const res=await fetch('/start',{method:'POST',headers:{'X-CSRF-Token':csrfToken},body:new FormData(e.target)}),data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||'Failed to start.');lastLogKey='';poll()}catch(err){showErr(err.message);btnStart.disabled=false}});
+  btnStop.addEventListener('click',async()=>{btnStop.disabled=true;try{const res=await fetch('/stop',{method:'POST',headers:{'X-CSRF-Token':csrfToken}}),data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||'Failed to stop.')}catch(err){showErr(err.message);btnStop.disabled=false}});
+  async function poll(){try{const res=await fetch('/status');if(res.redirected){location.href=res.url;return}const s=await res.json();for(const k of ['closed','skipped','left','cycles'])$('s_'+k).textContent=(s.stats?.[k]??0).toLocaleString('en-US');if(s.logs?.length)renderLogs(s.logs);botRunning=!!s.running;cooldown=s.cooldown??0;renderStatus();btnStart.disabled=botRunning;btnStop.disabled=!botRunning;if(errBox.textContent.startsWith('Status unavailable'))showErr('')}catch(err){showErr('Status unavailable: '+err.message)}}
   setInterval(poll,3000);poll();
-  async function pollAch(){try{const r=await fetch('/achievements');if(!r.ok)return;const a=await r.json(),fmt=n=>n.toLocaleString('en-US');document.getElementById('achCount').textContent=fmt(a.count);document.getElementById('achTitle').textContent=a.title;document.getElementById('achDesc').textContent=a.description;document.getElementById('achFill').style.width=a.percent+'%';document.getElementById('achBar').setAttribute('aria-valuenow',a.percent);document.getElementById('achNext').textContent=a.next_title?`Next: ${a.next_title} @ ${fmt(a.next_at)} (${a.percent}%)`:'All achievements unlocked. Go touch grass.';document.getElementById('achUnlocked').textContent=a.unlocked.length?'Unlocked: '+a.unlocked.join(' · '):''}catch(e){}}
+  function toast(text,desc){$('toastText').textContent=text;$('toastDesc').textContent=desc||'';const t=$('toast');t.classList.add('show');setTimeout(()=>t.classList.remove('show'),6000)}
+  async function pollAch(){try{const r=await fetch('/achievements');if(!r.ok)return;const a=await r.json(),fmt=n=>n.toLocaleString('en-US');$('achCount').textContent=fmt(a.count);$('achTitle').textContent=a.title;$('achDesc').textContent=a.description;$('achFill').style.width=a.percent+'%';$('achBar').setAttribute('aria-valuenow',a.percent);$('achNext').textContent=a.next_title?`${fmt(a.next_at-a.count)} to go until ${a.next_title} · ${a.percent}% of this tier`:'All achievements unlocked. Go touch grass.';let nextMarked=false;$('achLadder').replaceChildren(...a.ladder.map(t=>{const li=document.createElement('li');const isNext=!t.unlocked&&!nextMarked;if(isNext)nextMarked=true;li.className=t.unlocked?'on':isNext?'next':'';li.title=t.description;const i=document.createElement('span');i.className='i';i.textContent=t.unlocked?'★':'·';const n=document.createElement('span');n.textContent=t.title;const at=document.createElement('span');at.className='at';at.textContent=fmt(t.at);li.append(i,n,at);return li}));if(lastAch!==null&&a.title!==lastAch)toast(a.title,a.description);lastAch=a.title}catch(e){}}
   setInterval(pollAch,15000);pollAch();
 </script>
 </body>

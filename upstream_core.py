@@ -124,7 +124,7 @@ def parse_rsc_response(raw_text: str) -> Any:
     for line in raw_text.splitlines():
         if line.startswith("1:"):
             return json.loads(line[2:])
-    raise ArgusParseError("Baris data '1:' nggak ketemu di response RSC.")
+    raise ArgusParseError("RSC response has no '1:' data line.")
 
 
 # ---------- Origin & Header builder ----------
@@ -174,10 +174,10 @@ def _call_server_action(
         try:
             resp = client.post(url, headers=headers, content=body, timeout=DEFAULT_TIMEOUT)
             if resp.status_code >= 500:
-                raise ArgusError(f"Server error {resp.status_code} dari upstream.")
+                raise ArgusError(f"Server error {resp.status_code} from upstream.")
             if resp.status_code == 403:
                 raise ArgusAuthError(
-                    "403 Forbidden — sesi kemungkinan expired atau Next-Action hash berubah."
+                    "403 Forbidden — session likely expired or Next-Action hash changed."
                 )
             resp.raise_for_status()
             return parse_rsc_response(resp.text)
@@ -189,7 +189,7 @@ def _call_server_action(
                 time.sleep(RETRY_BACKOFF * attempt)
             else:
                 raise
-    raise ArgusError(f"Gagal setelah {attempts} percobaan: {last_exc}")
+    raise ArgusError(f"Failed after {attempts} attempts: {last_exc}")
 
 
 # ---------- Login (§3.4) ----------
@@ -276,7 +276,7 @@ def login(base_url: str, username: str, password: str) -> str:
         try:
             csrf_token = csrf_resp.json()["csrfToken"]
         except (json.JSONDecodeError, KeyError) as exc:
-            raise LoginError(f"Gagal ambil csrfToken: {exc}")
+            raise LoginError(f"Failed to get csrfToken: {exc}")
 
         # Cookie dari step csrf (kadang ada csrf cookie yang perlu ikut dikirim).
         pre_cookies = client.cookies
@@ -308,16 +308,16 @@ def login(base_url: str, username: str, password: str) -> str:
             # cuma "401 Unauthorized" yang bikin nebak-nebak.
             body = " ".join((login_resp.text or "").split())[:300]
             raise LoginError(
-                f"upstream menolak login (HTTP {login_resp.status_code}). "
-                f"Respons: {body or '<kosong>'}"
+                f"upstream rejected login (HTTP {login_resp.status_code}). "
+                f"Response: {body or '<empty>'}"
             )
 
         # Step 3: ekstrak session token dari cookie jar.
         session_cookie = _extract_session_cookie(client.cookies)
         if not session_cookie:
             raise LoginError(
-                "Login gagal — session token nggak ketemu. "
-                "Cek username/password, atau flow login upstream mungkin berubah."
+                "Login failed — no session token found. "
+                "Check username/password, or the upstream login flow may have changed."
             )
         return session_cookie
 
@@ -390,8 +390,8 @@ def fetch_alarms_page(
     )
     if not isinstance(result, dict):
         raise ArgusError(
-            f"Response fetch nggak sesuai format. Dapet tipe {type(result).__name__}, "
-            "harusnya dict. Format response upstream kemungkinan berubah."
+            f"Unexpected fetch response format. Got {type(result).__name__}, "
+            "expected dict. upstream response format likely changed."
         )
     return result
 
@@ -427,7 +427,7 @@ def fetch_all_open_alarms(
             )
             alarms.extend(data.get("data", []) or [])
             if log:
-                log(f"  page {page}/{total_pages} ok ({len(alarms)} terkumpul).")
+                log(f"  page {page}/{total_pages} ok ({len(alarms)} collected).")
     return alarms
 
 
@@ -530,12 +530,12 @@ def _wait_random_delay(
 ) -> bool:
     low, high = action_delay
     if not 0 <= low <= high:
-        raise ValueError("Range jeda aksi tidak valid.")
+        raise ValueError("Invalid action delay range.")
     seconds = low + secrets.randbelow(high - low + 1)
     if seconds == 0:
         return False
     if log:
-        log(f"  Jeda random {seconds}s {label}.")
+        log(f"  Random delay {seconds}s {label}.")
     if wait:
         return bool(wait(seconds))
     time.sleep(seconds)
@@ -572,9 +572,9 @@ def close_alarms(
     if not ids:
         return set()
     if confirm_owner is None:
-        raise ValueError("confirm_owner wajib untuk mutation.")
+        raise ValueError("confirm_owner is required for mutation.")
     if disposition not in DISPOSITIONS:
-        raise ValueError(f"Disposition tidak valid: {disposition}")
+        raise ValueError(f"Invalid disposition: {disposition}")
     reason = (reason or "")[:REASON_MAX_LEN]
     if skip_take_ids is None:
         skip_take_ids = set()
@@ -582,30 +582,30 @@ def close_alarms(
     with _new_client() as client:
         for index, aid in enumerate(ids):
             if (index or delay_before_first) and _wait_random_delay(
-                action_delay, wait, log, "sebelum alarm berikutnya"
+                action_delay, wait, log, "before next alarm"
             ):
                 break
             if should_stop and should_stop():
                 if log:
-                    log(f"  Stop — close dihentikan ({len(submitted)}/{len(ids)} terkirim).")
+                    log(f"  Stop — close halted ({len(submitted)}/{len(ids)} sent).")
                 break
             try:
                 # Langkah 1: take/claim — SKIP kalau udah ke-take sendiri.
                 if aid in skip_take_ids:
                     if log:
-                        log(f"  [{aid}] udah ke-take sendiri, skip take.")
+                        log(f"  [{aid}] already taken by you, skipping take.")
                 else:
                     _take_alarm(client, base_url, cookie, aid)
                     skip_take_ids.add(aid)
                     if _wait_random_delay(
-                        action_delay, wait, log, f"setelah take [{aid}] sebelum verdict"
+                        action_delay, wait, log, f"after take [{aid}] before verdict"
                     ):
                         break
                     if should_stop and should_stop():
                         break
                 if not confirm_owner(aid):
                     if log:
-                        log(f"  GAGAL [{aid}]: ownership sebelum mutation tidak terkonfirmasi.")
+                        log(f"  FAILED [{aid}]: ownership not confirmed before mutation.")
                     continue
                 if should_stop and should_stop():
                     break
@@ -620,7 +620,7 @@ def close_alarms(
                     log(f"  take+{disposition} [{aid}] ok ({len(submitted)}/{len(ids)}).")
             except ArgusError as exc:
                 if log:
-                    log(f"  GAGAL [{aid}]: {exc}")
+                    log(f"  FAILED [{aid}]: {exc}")
     return submitted
 
 
@@ -675,18 +675,18 @@ def suppress_alarms(
     if not ids:
         return set()
     if confirm_owner is None:
-        raise ValueError("confirm_owner wajib untuk mutation.")
+        raise ValueError("confirm_owner is required for mutation.")
     reason = (reason or "")[:REASON_MAX_LEN]
     submitted: set[str] = set()
     with _new_client() as client:
         for index, aid in enumerate(ids):
             if (index or delay_before_first) and _wait_random_delay(
-                action_delay, wait, log, "sebelum alarm berikutnya"
+                action_delay, wait, log, "before next alarm"
             ):
                 break
             if should_stop and should_stop():
                 if log:
-                    log(f"  Stop — suppress dihentikan ({len(submitted)}/{len(ids)} terkirim).")
+                    log(f"  Stop — suppress halted ({len(submitted)}/{len(ids)} sent).")
                 break
             try:
                 # Take dulu (sama kayak jalur FP — tanpa ini set status silent-fail).
@@ -697,14 +697,14 @@ def suppress_alarms(
                     if skip_take_ids is not None:
                         skip_take_ids.add(aid)
                     if _wait_random_delay(
-                        action_delay, wait, log, f"setelah take [{aid}] sebelum verdict"
+                        action_delay, wait, log, f"after take [{aid}] before verdict"
                     ):
                         break
                     if should_stop and should_stop():
                         break
                 if not confirm_owner(aid):
                     if log:
-                        log(f"  GAGAL suppress [{aid}]: ownership sebelum mutation tidak terkonfirmasi.")
+                        log(f"  FAILED suppress [{aid}]: ownership not confirmed before mutation.")
                     continue
                 if should_stop and should_stop():
                     break
@@ -723,7 +723,7 @@ def suppress_alarms(
                     log(f"  suppress [{aid}] ok ({len(submitted)}/{len(ids)}).")
             except ArgusError as exc:
                 if log:
-                    log(f"  GAGAL suppress [{aid}]: {exc}")
+                    log(f"  FAILED suppress [{aid}]: {exc}")
     return submitted
 
 
@@ -745,7 +745,7 @@ def verify_disposition(
     if not ids:
         return (set(), set())
     if disposition not in DISPOSITIONS:
-        raise ValueError(f"Disposition tidak valid: {disposition}")
+        raise ValueError(f"Invalid disposition: {disposition}")
     moved_alarms = fetch_all_open_alarms(
         base_url, cookie, shift_time, page_size=page_size,
         status=disposition, log=None,
@@ -756,7 +756,7 @@ def verify_disposition(
     verified = want & moved_ids
     missing = want - moved_ids
     if log and missing:
-        log(f"  WARNING: {len(missing)} ID nggak keliatan di tab {disposition}: {sorted(missing)}")
+        log(f"  WARNING: {len(missing)} IDs not found in {disposition} tab: {sorted(missing)}")
     return (verified, missing)
 
 

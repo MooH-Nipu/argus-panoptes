@@ -1,166 +1,66 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Login — Argus Panoptes</title>
+  <title>Sign in · Argus Panoptes</title>
+  {% include "_theme.html" %}
   <style>
-    :root {
-      color-scheme: dark;
-      --bg: #080d14;
-      --panel: #111923;
-      --panel-muted: #0c131c;
-      --border: #293646;
-      --border-strong: #3d4c5f;
-      --text: #e5ebf3;
-      --muted: #9aa9ba;
-      --faint: #718096;
-      --accent: #4f8fdc;
-      --accent-hover: #66a3eb;
-      --danger-bg: #2b1519;
-      --danger-border: #7f3039;
-      --danger-text: #ffc6cc;
-    }
-    * { box-sizing: border-box; }
-    html { background: var(--bg); }
-    body {
-      min-height: 100vh;
-      margin: 0;
-      display: grid;
-      place-items: center;
-      background: var(--bg);
-      color: var(--text);
-      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    .login-wrap { width: min(100%, 410px); padding: 20px; }
-    .brand { margin-bottom: 16px; }
-    .eyebrow {
-      margin: 0 0 6px;
-      color: var(--accent-hover);
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .1em;
-      text-transform: uppercase;
-    }
-    .brand h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: .01em; }
-    .brand p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
-    .card {
-      padding: 22px;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 7px;
-    }
-    .card-head { margin-bottom: 18px; }
-    .card-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
-    .card-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
-    .field { margin-bottom: 15px; }
-    label { display: block; margin-bottom: 5px; color: #c3cedb; font-size: 12px; font-weight: 600; }
-    input[type=text], input[type=password] {
-      width: 100%;
-      min-height: 42px;
-      padding: 9px 11px;
-      background: var(--panel-muted);
-      border: 1px solid var(--border-strong);
-      border-radius: 5px;
-      color: var(--text);
-      font: inherit;
-    }
-    input::placeholder { color: var(--faint); }
-    input:hover { border-color: #52647a; }
-    input:focus-visible, button:focus-visible {
-      outline: 3px solid #82b7f4;
-      outline-offset: 2px;
-      border-color: #82b7f4;
-    }
-    button {
-      width: 100%;
-      min-height: 42px;
-      padding: 9px 14px;
-      border: 1px solid #5f9ce4;
-      border-radius: 5px;
-      background: var(--accent);
-      color: #07111d;
-      font: inherit;
-      font-weight: 750;
-      cursor: pointer;
-    }
-    button:hover { background: var(--accent-hover); }
-    #errBox {
-      margin: 0 0 16px;
-      padding: 10px 12px;
-      background: var(--danger-bg);
-      border: 1px solid var(--danger-border);
-      border-radius: 5px;
-      color: var(--danger-text);
-      font-size: 13px;
-    }
-    #errBox strong { display: block; margin-bottom: 2px; }
-    .hint { margin: 5px 0 0; color: var(--faint); font-size: 11px; }
-    .security-note {
-      margin: 18px 0 0;
-      padding-top: 13px;
-      border-top: 1px solid var(--border);
-      color: var(--muted);
-      font-size: 11px;
-    }
-    @media (max-width: 480px) {
-      body { place-items: start center; }
-      .login-wrap { padding: 24px 14px; }
-      .card { padding: 18px 16px; }
-      input[type=text], input[type=password], button { min-height: 44px; }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { scroll-behavior: auto !important; }
-    }
+    body{display:grid;place-items:center;padding:24px}
+    .wrap{width:min(100%,430px)}
+    .hero{margin-bottom:18px}
+    .hero h1{margin:6px 0 4px;font:800 26px/1.1 var(--mono);letter-spacing:.02em;background:linear-gradient(90deg,var(--green),var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent}
+    .hero p{margin:0;color:var(--muted);font-size:13px}
+    .term{margin:0 0 18px;padding:10px 12px;border:1px dashed var(--line2);border-radius:8px;background:var(--panel2);color:var(--faint);font:11px/1.7 var(--mono)}
+    .term .ok{color:var(--green)}
+    .field{margin-bottom:15px}
+    .btn.go{width:100%;margin-top:4px}
+    .foot{margin:16px 0 0;padding-top:12px;border-top:1px solid var(--line);color:var(--faint);font-size:11px}
   </style>
 </head>
 <body>
-  <main class="login-wrap">
-    <header class="brand">
+  <main class="wrap">
+    <header class="hero">
       <p class="eyebrow">upstream Operations</p>
       <h1>ALPHA TIDAK KEREN TITIK</h1>
-      <p>Masuk dengan akun upstream untuk membuka kontrol auto-close.</p>
+      <p>Sign in with your upstream account to open the auto-close console.</p>
     </header>
 
-    <section class="card" aria-labelledby="login-title">
-      <div class="card-head">
-        <h2 id="login-title">Login operator</h2>
-        <p>Pastikan endpoint sesuai client sebelum melanjutkan.</p>
+    <section class="panel" aria-labelledby="login-title">
+      <h2 id="login-title">Operator sign-in</h2>
+      <div class="term" aria-hidden="true">
+        <div>$ handshake --target private-ip --tls internal</div>
+        {% if error %}<div style="color:var(--red)">denied · check credentials and retry<span class="cursor"></span></div>
+        {% else %}<div><span class="ok">ready</span> · awaiting credentials<span class="cursor"></span></div>{% endif %}
       </div>
 
       {% if error %}
-      <div id="errBox" role="alert" aria-live="assertive">
-        <strong>Login gagal</strong>
-        <span>{{ error }}</span>
-      </div>
+      <div class="alert" role="alert" aria-live="assertive"><strong>Login failed</strong><br>{{ error }}</div>
       {% endif %}
 
       <form method="post" action="{{ url_for('login') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="field">
-          <label for="base_url">Base URL upstream</label>
+          <label for="base_url">upstream base URL</label>
           <input type="text" id="base_url" name="base_url" placeholder="https://192.168.1.10"
-                 value="{{ base_url or '' }}" aria-describedby="base-url-hint" autofocus required>
-          <p class="hint" id="base-url-hint">URL HTTPS memakai IP private tanpa path. Target mengikuti input ini; hostname ditolak untuk mencegah DNS rebinding.</p>
+                 value="{{ base_url or '' }}" aria-describedby="base-url-hint" {% if not error %}autofocus{% endif %} required>
+          <p class="hint" id="base-url-hint">HTTPS with a private IP and no path. Hostnames are rejected to prevent DNS rebinding.</p>
         </div>
-
         <div class="field">
           <label for="username">Username</label>
           <input type="text" id="username" name="username" autocomplete="username"
                  value="{{ username or '' }}" required>
         </div>
-
         <div class="field">
           <label for="password">Password</label>
           <input type="password" id="password" name="password" autocomplete="current-password"
-                 aria-describedby="password-hint" required>
-          <p class="hint" id="password-hint">Password hanya dipakai untuk login dan tidak disimpan ke disk.</p>
+                 aria-describedby="password-hint" {% if error %}autofocus aria-invalid="true"{% endif %} required>
+          <p class="hint" id="password-hint">Used only to sign in. Never written to disk.</p>
         </div>
-
-        <button type="submit">Masuk ke dashboard</button>
+        <button type="submit" class="btn go">Enter console <span class="arw" aria-hidden="true">&rarr;</span></button>
       </form>
 
-      <p class="security-note">Sesi ini memberi akses ke aksi operasional. Gunakan hanya endpoint dan akun yang sudah diverifikasi.</p>
+      <p class="foot">This session can change alarm state in upstream. Use only verified endpoints and accounts.</p>
     </section>
   </main>
 </body>

@@ -66,7 +66,7 @@ class StartSettingsValidationTests(unittest.TestCase):
         self.assertEqual(cleaned["disposition"], "False Positive")
 
     def test_whitelist_rejects_unknown_disposition(self) -> None:
-        with self.assertRaisesRegex(ValueError, "Disposition"):
+        with self.assertRaisesRegex(ValueError, "disposition"):
             app.cfg.clean_whitelist_rule({
                 "alarm_name_equals": "Alarm A",
                 "disposition": "Delete",
@@ -157,7 +157,7 @@ class StartSettingsValidationTests(unittest.TestCase):
         ])
 
     def test_whitelist_rejects_too_short_contains(self) -> None:
-        with self.assertRaisesRegex(ValueError, "minimal"):
+        with self.assertRaisesRegex(ValueError, "at least"):
             app.cfg.clean_whitelist_rule({"alarm_name_contains": "error", "reason": "x"})
         cleaned = app.cfg.clean_whitelist_rule(
             {"alarm_name_contains": "Invalid URI", "reason": "x"}
@@ -213,7 +213,7 @@ class StartSettingsValidationTests(unittest.TestCase):
             "action_delay_max_seconds": "2",
         }
 
-        with self.assertRaisesRegex(ValueError, "Jeda aksi"):
+        with self.assertRaisesRegex(ValueError, "Action delay"):
             app.validate_start_settings(form, app.cfg.DEFAULT_SETTINGS)
 
 
@@ -334,6 +334,9 @@ class AchievementTests(unittest.TestCase):
                     self.assertEqual(prog["unlocked"], unlocked)
         self.assertEqual(len(app.achievement_progress(100_000)["unlocked"]), 6)
         self.assertTrue(all(desc for _, _, desc in app.ACHIEVEMENTS))
+        ladder = app.achievement_progress(5_000)["ladder"]
+        self.assertEqual(len(ladder), len(app.ACHIEVEMENTS))
+        self.assertEqual([t["unlocked"] for t in ladder], [True, True, True] + [False] * 4)
         self.assertEqual(
             app.achievement_progress(1_000)["description"], app.ACHIEVEMENTS[1][2]
         )
@@ -413,7 +416,7 @@ class WebSecurityTests(unittest.TestCase):
         )
 
     def test_login_rejects_hostname_to_prevent_dns_rebinding(self) -> None:
-        with self.assertRaisesRegex(ValueError, "IP private literal"):
+        with self.assertRaisesRegex(ValueError, "private IP literal"):
             app.validate_base_url("https://upstream.internal")
 
     def test_login_rejects_public_or_local_targets(self) -> None:
@@ -425,7 +428,7 @@ class WebSecurityTests(unittest.TestCase):
             "https://198.18.0.1",
         ):
             with self.subTest(target=target), self.assertRaisesRegex(
-                ValueError, "jaringan private"
+                ValueError, "safe private network"
             ):
                 app.validate_base_url(target)
 
@@ -437,7 +440,7 @@ class WebSecurityTests(unittest.TestCase):
 
     def test_login_rejects_invalid_or_zero_port(self) -> None:
         for target in ("https://10.20.30.40:0", "https://10.20.30.40:99999"):
-            with self.subTest(target=target), self.assertRaisesRegex(ValueError, "Port"):
+            with self.subTest(target=target), self.assertRaisesRegex(ValueError, "port"):
                 app.validate_base_url(target)
 
     def test_upstream_cookie_never_enters_browser_session(self) -> None:
@@ -476,7 +479,7 @@ class WebSecurityTests(unittest.TestCase):
                 },
             )
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Login gagal", response.data)
+        self.assertIn(b"Login failed", response.data)
         self.assertNotIn(b"Traceback", response.data)
 
     def test_status_requires_login(self) -> None:
@@ -630,7 +633,7 @@ class WebSecurityTests(unittest.TestCase):
         with patch.object(
             app.cfg,
             "update_whitelist_rule",
-            side_effect=app.cfg.RuleConflictError("Rule berubah. Refresh halaman."),
+            side_effect=app.cfg.RuleConflictError("Rule changed. Refresh the page."),
         ):
             response = self.client.post("/rules/whitelist/edit/1", data={
                 "csrf_token": token,
@@ -641,7 +644,7 @@ class WebSecurityTests(unittest.TestCase):
             })
 
         self.assertEqual(response.status_code, 409)
-        self.assertIn(b"Rule berubah", response.data)
+        self.assertIn(b"Rule changed", response.data)
 
     def test_whitelist_edit_invalid_index_returns_not_found(self) -> None:
         token = self.csrf()

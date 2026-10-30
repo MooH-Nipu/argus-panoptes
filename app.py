@@ -161,23 +161,23 @@ def _is_private_upstream_address(value: str) -> bool:
 def validate_base_url(value: str) -> str:
     parsed = urlparse(value.strip())
     if parsed.scheme != "https" or not parsed.hostname:
-        raise ValueError("Base URL wajib HTTPS dan punya hostname valid.")
+        raise ValueError("Base URL must be HTTPS with a valid host.")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ValueError("Base URL tidak boleh berisi kredensial, query, atau fragment.")
+        raise ValueError("Base URL must not contain credentials, query, or fragment.")
     if parsed.path not in ("", "/"):
-        raise ValueError("Base URL tidak boleh berisi path.")
+        raise ValueError("Base URL must not contain a path.")
     try:
         port = 443 if parsed.port is None else parsed.port
     except ValueError as exc:
-        raise ValueError("Port Base URL tidak valid.") from exc
+        raise ValueError("Invalid Base URL port.") from exc
     if port < 1:
-        raise ValueError("Port Base URL tidak valid.")
+        raise ValueError("Invalid Base URL port.")
     try:
         address = ipaddress.ip_address(parsed.hostname)
     except ValueError as exc:
-        raise ValueError("Base URL upstream wajib memakai IP private literal, bukan hostname.") from exc
+        raise ValueError("upstream Base URL must be a private IP literal, not a hostname.") from exc
     if not _is_private_upstream_address(str(address)):
-        raise ValueError("Base URL upstream wajib mengarah ke jaringan private yang aman.")
+        raise ValueError("upstream Base URL must point to a safe private network.")
     display_host = f"[{address.compressed}]" if address.version == 6 else address.compressed
     return f"https://{display_host}" + (f":{port}" if port != 443 else "")
 
@@ -185,10 +185,10 @@ def validate_base_url(value: str) -> str:
 def validate_start_settings(form: Any, defaults: dict[str, Any]) -> dict[str, Any]:
     interval = _to_int(form.get("poll_interval_seconds"), -1)
     if not MIN_POLL_INTERVAL <= interval <= MAX_POLL_INTERVAL:
-        raise ValueError(f"Interval wajib {MIN_POLL_INTERVAL}-{MAX_POLL_INTERVAL} detik.")
+        raise ValueError(f"Interval must be {MIN_POLL_INTERVAL}-{MAX_POLL_INTERVAL} seconds.")
     max_close = _to_int(form.get("max_close_per_cycle"), -1)
     if not 1 <= max_close <= MAX_CLOSE_LIMIT:
-        raise ValueError(f"Maks close wajib 1-{MAX_CLOSE_LIMIT}.")
+        raise ValueError(f"Max close must be 1-{MAX_CLOSE_LIMIT}.")
     delay_min = _to_int(
         form.get("action_delay_min_seconds"), defaults["action_delay_min_seconds"]
     )
@@ -196,7 +196,7 @@ def validate_start_settings(form: Any, defaults: dict[str, Any]) -> dict[str, An
         form.get("action_delay_max_seconds"), defaults["action_delay_max_seconds"]
     )
     if not 0 <= delay_min <= delay_max <= MAX_ACTION_DELAY:
-        raise ValueError(f"Jeda aksi wajib 0-{MAX_ACTION_DELAY} detik dan minimum <= maksimum.")
+        raise ValueError(f"Action delay must be 0-{MAX_ACTION_DELAY} seconds with min <= max.")
     return {
         **defaults,
         "poll_interval_seconds": interval,
@@ -222,7 +222,7 @@ def verify_csrf():
     supplied = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token", "")
     expected = session.get("csrf_token", "")
     if not expected or not secrets.compare_digest(supplied, expected):
-        return jsonify({"ok": False, "error": "CSRF token tidak valid. Refresh halaman."}), 403
+        return jsonify({"ok": False, "error": "Invalid CSRF token. Refresh the page."}), 403
     return None
 
 
@@ -267,22 +267,22 @@ def login():
     username = (request.form.get("username") or "").strip()
     password = request.form.get("password") or ""
     if not base_url or not username or not password:
-        return render_template("login.html", error="Base URL, username, dan password wajib diisi.")
+        return render_template("login.html", error="Base URL, username, and password are required.")
     if not _login_allowed(username):
-        return render_template("login.html", error="Terlalu banyak percobaan login. Coba lagi satu menit."), 429
+        return render_template("login.html", error="Too many login attempts. Try again in a minute."), 429
 
     try:
         base_url = validate_base_url(base_url)
         cookie = core.login(base_url, username, password)
     except (ValueError, core.LoginError, core.ArgusError, httpx.HTTPError) as exc:
         return render_template(
-            "login.html", error=f"Login gagal: {exc}", base_url=base_url,
+            "login.html", error=f"Login failed: {exc}", base_url=base_url,
             username=username,
         )
 
     bot = _get_bot(create=True)
     if bot is None:
-        raise RuntimeError("Gagal membuat state sesi lokal.")
+        raise RuntimeError("Failed to create local session state.")
     bot.upstream_cookie = cookie
     bot.base_url = base_url.rstrip("/")
     bot.username = username
@@ -323,10 +323,10 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
         int(settings["action_delay_max_seconds"]),
     )
 
-    limit_txt = "tanpa batas" if max_close <= 0 else f"maks {max_close}/sapu"
-    bot.log(f"Bot start. Shift otomatis (jam sistem, grace 1 jam), interval={interval}s, "
+    limit_txt = "unlimited" if max_close <= 0 else f"max {max_close}/sweep"
+    bot.log(f"Bot started. Auto shift (system clock, 1h grace), interval={interval}s, "
             f"protect_high_severity={'ON' if protect_high else 'OFF'}, "
-            f"close {limit_txt}, jeda aksi random={action_delay[0]}-{action_delay[1]}s.")
+            f"close {limit_txt}, random action delay={action_delay[0]}-{action_delay[1]}s.")
 
     try:
         while not bot.stop_event.is_set():
@@ -337,7 +337,7 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
             for shift, date_from, date_to in cfg.shift_windows():
                 if budget <= 0 or bot.stop_event.is_set():
                     break
-                bot.log(f"Siklus mulai. Shift {shift}, tanggal {date_from} s/d {date_to}.")
+                bot.log(f"Cycle start. Shift {shift}, dates {date_from} to {date_to}.")
                 budget -= _run_one_cycle(
                     bot, cookie, shift, page_size, protect_high, budget,
                     date_from=date_from, date_to=date_to, last_days="",
@@ -355,20 +355,20 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
             elapsed = time.time() - cycle_start
             remaining = max(0, interval - int(elapsed))
             if remaining:
-                bot.log(f"Siklus selesai. Tunggu {remaining}s sampai siklus berikutnya.")
+                bot.log(f"Cycle done. Next cycle in {remaining}s.")
                 with bot.lock:
                     bot.next_cycle_at = time.time() + remaining
             bot.stop_event.wait(remaining)
             with bot.lock:
                 bot.next_cycle_at = 0.0
     except core.ArgusAuthError as exc:
-        bot.log(f"AUTH ERROR: {exc} Login ulang diperlukan.")
+        bot.log(f"AUTH ERROR: {exc} Please log in again.")
     except core.ArgusError as exc:
-        bot.log(f"ERROR siklus: {exc}")
+        bot.log(f"Cycle ERROR: {exc}")
     except Exception as exc:  # noqa: BLE001 - worker must fail closed and reset state
-        bot.log(f"ERROR tak terduga: {exc}")
+        bot.log(f"Unexpected ERROR: {exc}")
     finally:
-        bot.log("Bot berhenti.")
+        bot.log("Bot stopped.")
         with bot.lock:
             bot.running = False
             bot.next_cycle_at = 0.0
@@ -404,8 +404,8 @@ def _run_one_cycle(
         date_from=date_from, date_to=date_to, last_days=last_days,
     )
     if not alarms:
-        bot.log("Nggak ada alarm Undefined di shift ini. (Kalau tab Undefined upstream ada "
-                "isi, string shift di config_store.SHIFTS kemungkinan nggak cocok.)")
+        bot.log("No Undefined alarms in this shift. (If upstream's Undefined tab is not "
+                "empty, the shift string in config_store.SHIFTS probably doesn't match.)")
         return 0
 
     # Kelompokkan alarm yang ditandai close by reason (§4.4).
@@ -430,7 +430,7 @@ def _run_one_cycle(
             # Di-take analyst lain -> JANGAN sentuh (bisa nabrak investigasi orang).
             if taker_email and taker_email != my_email:
                 n_other += 1
-                bot.log(f"LEAVE [{aid}] {name} — ke-take analyst lain ({alarm.get('email')})")
+                bot.log(f"LEAVE [{aid}] {name} — taken by another analyst ({alarm.get('email')})")
                 continue
             # Di-take sendiri -> tandai skip-take (take ulang = gagal non-RSC).
             if taker_email and taker_email == my_email:
@@ -461,11 +461,11 @@ def _run_one_cycle(
         to_close = trimmed
         total_close = max_close
 
-    bot.log(f"Evaluasi: {total_close} akan dimutasi, {n_skip} di-skip, "
-            f"{n_leave} dibiarkan (manual)"
-            + (f", {n_other} ke-take analyst lain" if n_other else "")
-            + (f" ({len(skip_take_ids)} di antaranya ke-take sendiri, skip take)" if skip_take_ids else "")
-            + (f", {deferred} ditunda (batas {max_close}/sapu)." if deferred else "."))
+    bot.log(f"Evaluation: {total_close} to mutate, {n_skip} skipped, "
+            f"{n_leave} left for manual review"
+            + (f", {n_other} taken by other analysts" if n_other else "")
+            + (f" ({len(skip_take_ids)} already taken by you, skipping take)" if skip_take_ids else "")
+            + (f", {deferred} deferred (limit {max_close}/sweep)." if deferred else "."))
 
     with bot.lock:
         bot.stats["skipped"] += n_skip
@@ -474,7 +474,7 @@ def _run_one_cycle(
     if dry_run:
         for (disposition, reason), ids in to_close.items():
             bot.log(
-                f'DRY RUN — {len(ids)} kandidat {disposition}, '
+                f'DRY RUN — {len(ids)} {disposition} candidates, '
                 f'reason: "{reason}" IDs={ids}'
             )
         return total_close
@@ -497,9 +497,9 @@ def _run_one_cycle(
     for group_index, ((disposition, reason), ids) in enumerate(to_close.items()):
         # Stop dicek antar-grup — kalau user klik Stop, jangan mulai grup baru.
         if should_stop():
-            bot.log("Stop — siklus dihentikan sebelum grup berikutnya.")
+            bot.log("Stop — cycle halted before next group.")
             break
-        bot.log(f"Set {len(ids)} alarm ke {disposition}, reason: \"{reason}\"")
+        bot.log(f"Setting {len(ids)} alarms to {disposition}, reason: \"{reason}\"")
         submitted = core.close_alarms(
             bot.base_url, cookie, ids, reason,
             log=bot.log, should_stop=should_stop,
@@ -518,13 +518,13 @@ def _run_one_cycle(
                 disposition=disposition,
             )
             bot.log(
-                f"  Verified {len(verified)}/{len(submitted)} pindah ke tab {disposition}."
+                f"  Verified {len(verified)}/{len(submitted)} moved to {disposition} tab."
             )
             use_suppress = (
                 disposition == core.STATUS_FALSE_POSITIVE and enable_suppress_fallback
             )
             if missing and use_suppress and not should_stop():
-                bot.log("  Tunggu 2s lalu verifikasi ulang sebelum fallback suppress.")
+                bot.log("  Waiting 2s, then re-verifying before suppress fallback.")
                 if not bot.stop_event.wait(2):
                     verified_retry, missing = core.verify_false_positive(
                         bot.base_url, cookie, sorted(missing), shift, page_size=page_size,
@@ -542,7 +542,7 @@ def _run_one_cycle(
         # Suppress fallback hanya valid untuk jalur False Positive.
         if missing and use_suppress and not should_stop():
             miss_ids = sorted(missing)
-            bot.log(f"  {len(miss_ids)} alarm nggak pindah — coba jalur suppress.")
+            bot.log(f"  {len(miss_ids)} alarms did not move — trying suppress path.")
             suppressed = core.suppress_alarms(
                 bot.base_url, cookie, miss_ids, reason, log=bot.log,
                 should_stop=should_stop,
@@ -558,10 +558,10 @@ def _run_one_cycle(
                 )
             finally:
                 _audit(bot, suppressed, names, disposition, reason, verified2, "suppress")
-            bot.log(f"  Suppress verified {len(verified2)}/{len(miss_ids)} pindah ke tab FP.")
+            bot.log(f"  Suppress verified {len(verified2)}/{len(miss_ids)} moved to FP tab.")
             if missing2:
-                bot.log(f"  WARNING: {len(missing2)} tetap nggak pindah "
-                        f"(FP & suppress dua-duanya gagal): {sorted(missing2)}")
+                bot.log(f"  WARNING: {len(missing2)} still did not move "
+                        f"(both FP and suppress failed): {sorted(missing2)}")
             verified = verified | verified2
 
         with bot.lock:
@@ -629,6 +629,10 @@ def achievement_progress(count: int) -> dict[str, Any]:
         "next_title": nxt[1] if nxt else "",
         "next_at": nxt[0] if nxt else 0,
         "percent": pct,
+        "ladder": [
+            {"at": need, "title": name, "description": desc, "unlocked": count >= need}
+            for need, name, desc in ACHIEVEMENTS
+        ],
     }
 
 
@@ -639,6 +643,12 @@ def health():
     return jsonify({"ok": True})
 
 
+@app.route("/favicon.ico")
+def favicon():
+    # Browser selalu minta favicon; 204 biar console nggak 404.
+    return "", 204
+
+
 @app.route("/")
 @login_required
 def index():
@@ -647,7 +657,7 @@ def index():
     return render_template(
         "index.html",
         running=bot.running if bot else False,
-        current_shift=cfg.current_shift(),
+        shift_windows=cfg.shift_windows(),
         settings=settings,
         username=session.get("username", ""),
         base_url=session.get("base_url", ""),
@@ -659,11 +669,11 @@ def index():
 def start():
     bot = _get_bot(create=True)
     if bot is None:
-        raise RuntimeError("Gagal membuat state sesi lokal.")
+        raise RuntimeError("Failed to create local session state.")
     cookie = bot.upstream_cookie
     base_url = bot.base_url
     if not cookie or not base_url:
-        return jsonify({"ok": False, "error": "Sesi login habis. Login ulang."}), 401
+        return jsonify({"ok": False, "error": "Login session expired. Please log in again."}), 401
 
     try:
         settings = validate_start_settings(request.form, cfg.load_settings())
@@ -671,7 +681,7 @@ def start():
         return jsonify({"ok": False, "error": str(exc)}), 400
     with bot.lock:
         if bot.running:
-            return jsonify({"ok": False, "error": "Bot sudah jalan."}), 400
+            return jsonify({"ok": False, "error": "Bot is already running."}), 400
         cfg.save_settings(settings)
         bot.stop_event.clear()
         bot.running = True
@@ -688,9 +698,9 @@ def start():
 def stop():
     bot = _get_bot()
     if not bot or not bot.running:
-        return jsonify({"ok": False, "error": "Bot nggak lagi jalan."}), 400
+        return jsonify({"ok": False, "error": "Bot is not running."}), 400
     bot.stop_event.set()
-    bot.log("Stop diminta, menunggu siklus berhenti...")
+    bot.log("Stop requested, waiting for cycle to halt...")
     return jsonify({"ok": True})
 
 
@@ -747,7 +757,7 @@ def edit_whitelist(index: int):
             expected_version=request.form.get("expected_version", ""),
         )
     except IndexError:
-        return "Rule whitelist tidak ditemukan.", 404
+        return "Whitelist rule not found.", 404
     except (ValueError, cfg.RuleConflictError) as exc:
         status = 409 if isinstance(exc, cfg.RuleConflictError) else 400
         return render_template(

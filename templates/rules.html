@@ -1,248 +1,181 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kelola Rules — Argus Panoptes</title>
+  <title>Rules · Argus Panoptes</title>
+  {% include "_theme.html" %}
   <style>
-    * { box-sizing: border-box; }
-    body {
-      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-      margin: 0; background: #0f172a; color: #e2e8f0; font-size: 14px;
-    }
-    header {
-      background: #1e293b; padding: 14px 20px; display: flex;
-      align-items: center; justify-content: space-between; border-bottom: 1px solid #334155;
-    }
-    header h1 { font-size: 16px; margin: 0; font-weight: 600; }
-    header a { color: #93c5fd; text-decoration: none; font-size: 13px; }
-    header a:hover { text-decoration: underline; }
-    .wrap { max-width: 1000px; margin: 0 auto; padding: 20px; }
-    .card {
-      background: #1e293b; border: 1px solid #334155; border-radius: 8px;
-      padding: 18px; margin-bottom: 20px;
-    }
-    .card h2 { font-size: 15px; margin: 0 0 6px; font-weight: 600; }
-    .card .desc { font-size: 12px; color: #94a3b8; margin: 0 0 14px; line-height: 1.5; }
-    .wl h2 { color: #22c55e; }
-    .pr h2 { color: #eab308; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #334155; font-size: 13px; }
-    th { color: #94a3b8; font-size: 11px; text-transform: uppercase; font-weight: 600; }
-    td.field { font-family: Consolas, monospace; color: #93c5fd; }
-    td .val { color: #e2e8f0; }
-    .empty { color: #64748b; font-style: italic; padding: 10px; }
-    input[type=text], select {
-      width: 100%; padding: 7px 9px; background: #0f172a; border: 1px solid #334155;
-      border-radius: 6px; color: #e2e8f0; font-size: 13px;
-    }
-    input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid #82b7f4; outline-offset: 2px; border-color: #82b7f4; }
-    .addrow { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
-    .addrow > div { flex: 1; min-width: 140px; }
-    .addrow label { display: block; font-size: 11px; color: #94a3b8; margin-bottom: 4px; }
-    button {
-      padding: 8px 16px; border: none; border-radius: 6px; font-size: 13px;
-      font-weight: 600; cursor: pointer;
-    }
-    .btn-add { background: #2563eb; color: #fff; }
-    .btn-add:hover { background: #1d4ed8; }
-    .btn-edit { display: inline-block; background: #155e75; color: #cffafe; padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
-    .btn-edit:hover { background: #0e7490; }
-    .btn-del { background: #7f1d1d; color: #fecaca; padding: 5px 12px; font-size: 12px; }
-    .btn-del:hover { background: #991b1b; }
-    .edit-row td { padding: 0 10px 10px; background: #172033; }
-    .edit-rule { padding-top: 8px; }
-    .edit-rule summary { width: max-content; }
-    .edit-rule .addrow { margin-top: 10px; }
-    #errBox {
-      background: #7f1d1d; color: #fecaca; padding: 10px 12px; border-radius: 6px;
-      margin-bottom: 16px; font-size: 13px;
-    }
-    .note { font-size: 11px; color: #64748b; margin-top: 8px; }
-    .policy { padding: 12px 14px; margin-bottom: 16px; border: 1px solid #35577b; border-radius: 6px; background: #111f2d; color: #bfd6ee; font-size: 12px; }
-    .table-wrap { overflow-x: auto; }
-    @media (max-width: 700px) { header { align-items: flex-start; flex-direction: column; } .wrap { padding: 12px; } button, input, select { min-height: 44px; } }
-    @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+    .wrap{width:min(1180px,100%);margin:auto;padding:20px}
+    .intro{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:16px}
+    .intro h1{margin:0;font:800 22px var(--mono);letter-spacing:.02em}
+    .intro p{margin:4px 0 0;color:var(--muted);font-size:13px;max-width:640px}
+    .flow{display:flex;align-items:center;gap:8px;font:700 11px var(--mono);letter-spacing:.08em;text-transform:uppercase}
+    .flow span{padding:5px 10px;border:1px solid var(--line2);border-radius:999px;background:var(--panel2)}
+    .flow .p{border-color:var(--amber);color:var(--amber)}.flow .w{border-color:var(--green);color:var(--green)}
+    .flow i{color:var(--faint);font-style:normal}
+    .panel{margin-bottom:16px}
+    .panel.protect{--accent:var(--amber)}.panel.wl{--accent:var(--green)}
+    .head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:6px}
+    .head h2{margin:0}
+    .count{font:700 11px var(--mono);color:var(--accent)}
+    .desc{margin:0 0 14px;color:var(--muted);font-size:13px}
+    .rules{display:grid;gap:10px;margin-bottom:16px}
+    .rule{padding:12px 14px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:9px;background:var(--panel2)}
+    .rule-top{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:10px}
+    .conds{display:flex;flex-wrap:wrap;gap:6px}
+    .cond{padding:3px 8px;border:1px solid var(--line2);border-radius:6px;background:#0c1520;font:12px var(--mono)}
+    .cond em{font-style:normal;color:var(--faint)}
+    .cond b{font-weight:600;color:var(--text)}
+    .and{align-self:center;color:var(--muted);font:700 11px var(--mono)}
+    .reason{margin:8px 0 0;color:var(--muted);font-size:13px}
+    .reason::before{content:"reason › ";color:var(--faint);font:11px var(--mono)}
+    .tools{display:flex;gap:8px;align-items:center}
+    .badge{padding:3px 9px;border-radius:999px;font:700 10px var(--mono);letter-spacing:.08em;text-transform:uppercase}
+    .badge.fp{background:rgba(60,255,160,.12);color:var(--green);border:1px solid rgba(60,255,160,.4)}
+    .badge.ex{background:rgba(79,209,255,.12);color:var(--cyan);border:1px solid rgba(79,209,255,.4)}
+    details.edit{margin-top:10px}
+    details.edit[open]{padding:12px;border:1px solid var(--line2);border-radius:9px;background:#0c1520}
+    details.edit summary{display:inline-block;cursor:pointer;color:var(--cyan);font:700 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;list-style:none}
+    details.edit summary::-webkit-details-marker{display:none}
+    details.edit summary::before{content:"▸ "}
+    details.edit[open] summary::before{content:"▾ "}
+    .formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px}
+    .formgrid .wide{grid-column:1/-1}
+    .formfoot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:12px}
+    .add{padding:14px;border:1px dashed var(--line2);border-radius:10px;background:rgba(255,255,255,.012)}
+    .add h3{margin:0;font:700 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+    .empty{padding:18px;border:1px dashed var(--line2);border-radius:9px;color:var(--faint);text-align:center;font:12px var(--mono)}
+    @media(max-width:640px){.wrap{padding:12px}.flow{flex-wrap:wrap}}
   </style>
 </head>
 <body>
-  <header>
-    <h1>Kelola Rules</h1>
-    <div style="display:flex; align-items:center; gap:16px;">
-      <a href="{{ url_for('index') }}">&larr; Kembali ke Dashboard</a>
-      <form method="post" action="{{ url_for('logout') }}" style="margin:0;">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" style="background:#7f1d1d; color:#fecaca; padding:5px 12px; font-size:12px;">Logout</button>
-      </form>
+<header class="topbar">
+  <a class="brand" href="{{ url_for('index') }}"><span class="logo" aria-hidden="true">AC</span><span><b>ARGUS PANOPTES<span class="cursor" aria-hidden="true"></span></b><small>rule editor</small></span></a>
+  <nav class="nav">
+    <a class="btn sm" href="{{ url_for('index') }}"><span class="arw" aria-hidden="true">&larr;</span> Console</a>
+    <form method="post" action="{{ url_for('logout') }}" style="margin:0"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn sm bad" type="submit">Logout</button></form>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section class="intro">
+    <div>
+      <p class="eyebrow">Automation rules</p>
+      <h1>Rules</h1>
+      <p>Every alarm runs through this pipeline in order. The bot never second-guesses your disposition choice.</p>
     </div>
-  </header>
+    <div class="flow" aria-label="Evaluation order: alarm, protect, whitelist, manual"><span>alarm</span><i class="arw">→</i><span class="p">protect</span><i class="arw">→</i><span class="w">whitelist</span><i class="arw">→</i><span>manual</span></div>
+  </section>
 
-  <div class="wrap">
-    <div class="policy"><strong>Rule mengikuti keputusan operator.</strong> Bot tidak menilai ulang disposition pilihan. Protect list tetap menang jika rule protect dan automation sama-sama match.</div>
-    {% if error %}<div id="errBox">{{ error }}</div>{% endif %}
+  {% if error %}<div class="alert" id="errBox" role="alert">{{ error }}</div>{% endif %}
 
-    <!-- ===== PROTECT LIST ===== -->
-    <div class="card pr">
-      <h2>Protect List</h2>
-      <p class="desc">
-        Alarm yang match di sini <strong>TIDAK akan pernah di-close</strong> bot,
-        walaupun kebetulan juga match whitelist. Prioritas lebih tinggi dari whitelist.
-        Isi minimal satu field matching + reason.
-      </p>
+  <!-- ===== PROTECT LIST ===== -->
+  <section class="panel protect" aria-labelledby="protect-title">
+    <div class="head"><h2 id="protect-title">Protect list</h2><span class="count">{{ protect|length }} rule{{ '' if protect|length == 1 else 's' }}</span></div>
+    <p class="desc">Matching alarms are <strong>never closed</strong> by the bot, even if they also match the whitelist.</p>
 
-      <table>
-        <thead>
-          <tr>
-            {% for f in protect_fields %}<th>{{ f }}</th>{% endfor %}
-            <th>Reason</th><th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% if protect %}
-            {% for rule in protect %}
-            <tr>
-              {% for f in protect_fields %}
-              <td class="field">{% if rule.get(f) %}<span class="val">{{ rule[f] }}</span>{% else %}&mdash;{% endif %}</td>
-              {% endfor %}
-              <td>{{ rule.reason }}</td>
-              <td>
-                <form method="post" action="{{ url_for('delete_protect', index=loop.index0) }}"
-                      onsubmit="return confirm('Hapus rule protect ini?');">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button type="submit" class="btn-del">Hapus</button>
-                </form>
-              </td>
-            </tr>
-            {% endfor %}
-          {% else %}
-            <tr><td colspan="{{ protect_fields|length + 2 }}" class="empty">Belum ada rule protect.</td></tr>
-          {% endif %}
-        </tbody>
-      </table>
-
-      <form method="post" action="{{ url_for('add_protect') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div class="addrow">
-          {% for f in protect_fields %}
-          <div>
-            <label>{{ f }}</label>
-            <input type="text" name="{{ f }}" placeholder="{{ f }}">
+    <div class="rules">
+      {% for rule in protect %}
+      <article class="rule">
+        <div class="rule-top">
+          <div class="conds">
+            {% for f in protect_fields if rule.get(f) %}{% if not loop.first %}<span class="and">AND</span>{% endif %}<span class="cond"><em>{{ f }}</em> = <b>{{ rule[f] }}</b></span>{% endfor %}
           </div>
-          {% endfor %}
-          <div>
-            <label>Reason *</label>
-            <input type="text" name="reason" placeholder="Alasan protect" required>
+          <form method="post" action="{{ url_for('delete_protect', index=loop.index0) }}" onsubmit="return confirm('Delete this protect rule?');" style="margin:0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn sm bad">Delete</button>
+          </form>
+        </div>
+        <p class="reason">{{ rule.reason }}</p>
+      </article>
+      {% else %}
+      <div class="empty">No protect rules yet.</div>
+      {% endfor %}
+    </div>
+
+    <form class="add" method="post" action="{{ url_for('add_protect') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <h3>+ New protect rule</h3>
+      <div class="formgrid">
+        {% for f in protect_fields %}
+        <div><label for="p-{{ f }}">{{ f }}</label><input type="text" id="p-{{ f }}" name="{{ f }}" placeholder="—"></div>
+        {% endfor %}
+        <div class="wide"><label for="p-reason">Reason *</label><input type="text" id="p-reason" name="reason" placeholder="Why this alarm must stay manual" required></div>
+      </div>
+      <div class="formfoot"><p class="hint" style="margin:0">Fill one or more fields. Multiple fields must all match (AND).</p><button type="submit" class="btn go" style="--green:var(--amber);background:var(--amber);border-color:var(--amber);box-shadow:0 0 22px rgba(255,181,71,.25)">Add protect rule</button></div>
+    </form>
+  </section>
+
+  <!-- ===== WHITELIST ===== -->
+  <section class="panel wl" aria-labelledby="wl-title">
+    <div class="head"><h2 id="wl-title">Whitelist automation</h2><span class="count">{{ whitelist|length }} rule{{ '' if whitelist|length == 1 else 's' }}</span></div>
+    <p class="desc">Matching alarms move to the disposition you choose: <strong>False Positive</strong> or <strong>Exclusion</strong>. Only applies when no protect rule matched first.</p>
+
+    <div class="rules">
+      {% for rule in whitelist %}
+      {% set rule_index = loop.index0 %}
+      {% set disp = rule.get('disposition', 'False Positive') %}
+      <article class="rule">
+        <div class="rule-top">
+          <div class="conds">
+            {% for f in whitelist_fields if rule.get(f) %}{% if not loop.first %}<span class="and">AND</span>{% endif %}<span class="cond"><em>{{ f }}</em> = <b>{{ rule[f] }}</b></span>{% endfor %}
           </div>
-          <div style="flex:0 0 auto;">
-            <button type="submit" class="btn-add">+ Tambah Protect</button>
+          <div class="tools">
+            <span class="badge {{ 'ex' if disp == 'Exclusion' else 'fp' }}">{{ disp }}</span>
+            <form method="post" action="{{ url_for('delete_whitelist', index=rule_index) }}" onsubmit="return confirm('Delete this whitelist rule?');" style="margin:0">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn sm bad">Delete</button>
+            </form>
           </div>
         </div>
-        <p class="note">Isi salah satu atau kombinasi field. Kalau lebih dari satu field diisi, semua harus cocok (AND).</p>
-      </form>
-    </div>
-
-    <!-- ===== WHITELIST ===== -->
-    <div class="card wl">
-      <h2>Whitelist Automation Rules</h2>
-      <p class="desc">
-        Alarm yang match akan dipindah ke disposition pilihan: <strong>False Positive</strong>
-        atau <strong>Exclusion</strong>. Cuma diproses kalau nggak ke-protect duluan.
-      </p>
-
-      <table>
-        <thead>
-          <tr>
-            {% for f in whitelist_fields %}<th>{{ f }}</th>{% endfor %}
-            <th>Disposition</th><th>Reason</th><th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% if whitelist %}
-            {% for rule in whitelist %}
-            {% set rule_index = loop.index0 %}
-            <tr>
+        <p class="reason">{{ rule.reason }}</p>
+        <details class="edit" id="edit-whitelist-{{ rule_index }}">
+          <summary>Edit rule</summary>
+          <form method="post" action="{{ url_for('edit_whitelist', index=rule_index) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="expected_version" value="{{ whitelist_rule_version(rule) }}">
+            <div class="formgrid">
               {% for f in whitelist_fields %}
-              <td class="field">{% if rule.get(f) %}<span class="val">{{ rule[f] }}</span>{% else %}&mdash;{% endif %}</td>
+              <div><label for="edit-{{ rule_index }}-{{ f }}">{{ f }}</label><input type="text" id="edit-{{ rule_index }}-{{ f }}" name="{{ f }}" value="{{ rule.get(f, '') }}" placeholder="—" title="{{ rule.get(f, '') }}"></div>
               {% endfor %}
-              <td>{{ rule.get('disposition', 'False Positive') }}</td>
-              <td>{{ rule.reason }}</td>
-              <td>
-                <form method="post" action="{{ url_for('delete_whitelist', index=rule_index) }}"
-                      onsubmit="return confirm('Hapus rule whitelist ini?');">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button type="submit" class="btn-del">Hapus</button>
-                </form>
-              </td>
-            </tr>
-            <tr class="edit-row">
-              <td colspan="{{ whitelist_fields|length + 3 }}">
-                <details class="edit-rule" id="edit-whitelist-{{ rule_index }}">
-                  <summary class="btn-edit">Edit rule</summary>
-                  <form method="post" action="{{ url_for('edit_whitelist', index=rule_index) }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="hidden" name="expected_version" value="{{ whitelist_rule_version(rule) }}">
-                    <div class="addrow">
-                      {% for f in whitelist_fields %}
-                      <div>
-                        <label for="edit-{{ rule_index }}-{{ f }}">{{ f }}</label>
-                        <input type="text" id="edit-{{ rule_index }}-{{ f }}" name="{{ f }}" value="{{ rule.get(f, '') }}">
-                      </div>
-                      {% endfor %}
-                      <div>
-                        <label for="edit-{{ rule_index }}-disposition">Disposition *</label>
-                        <select id="edit-{{ rule_index }}-disposition" name="disposition" required>
-                          {% for disposition in whitelist_dispositions %}
-                          <option value="{{ disposition }}"{% if disposition == rule.get('disposition', 'False Positive') %} selected{% endif %}>{{ disposition }}</option>
-                          {% endfor %}
-                        </select>
-                      </div>
-                      <div>
-                        <label for="edit-{{ rule_index }}-reason">Reason *</label>
-                        <input type="text" id="edit-{{ rule_index }}-reason" name="reason" value="{{ rule.reason }}" required>
-                      </div>
-                      <div style="flex:0 0 auto;">
-                        <button type="submit" class="btn-add">Simpan</button>
-                      </div>
-                    </div>
-                  </form>
-                </details>
-              </td>
-            </tr>
-            {% endfor %}
-          {% else %}
-            <tr><td colspan="{{ whitelist_fields|length + 3 }}" class="empty">Belum ada rule whitelist.</td></tr>
-          {% endif %}
-        </tbody>
-      </table>
-
-      <form method="post" action="{{ url_for('add_whitelist') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div class="addrow">
-          {% for f in whitelist_fields %}
-          <div>
-            <label>{{ f }}</label>
-            <input type="text" name="{{ f }}" placeholder="{{ f }}">
-          </div>
-          {% endfor %}
-          <div>
-            <label>Disposition *</label>
-            <select name="disposition" required>
-              {% for disposition in whitelist_dispositions %}
-              <option value="{{ disposition }}">{{ disposition }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div>
-            <label>Reason *</label>
-            <input type="text" name="reason" placeholder="Reason yang dikirim ke upstream" required>
-          </div>
-          <div style="flex:0 0 auto;">
-            <button type="submit" class="btn-add">+ Tambah Whitelist</button>
-          </div>
-        </div>
-        <p class="note">Field dalam satu rule memakai AND. Rule lama tanpa disposition tetap dianggap False Positive.</p>
-      </form>
+              <div><label for="edit-{{ rule_index }}-disposition">Disposition *</label>
+                <select id="edit-{{ rule_index }}-disposition" name="disposition" required>
+                  {% for disposition in whitelist_dispositions %}
+                  <option value="{{ disposition }}"{% if disposition == disp %} selected{% endif %}>{{ disposition }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="wide"><label for="edit-{{ rule_index }}-reason">Reason *</label><input type="text" id="edit-{{ rule_index }}-reason" name="reason" value="{{ rule.reason }}" required></div>
+            </div>
+            <div class="formfoot"><span></span><button type="submit" class="btn">Save changes</button></div>
+          </form>
+        </details>
+      </article>
+      {% else %}
+      <div class="empty">No whitelist rules yet. The bot will leave everything for manual review.</div>
+      {% endfor %}
     </div>
-  </div>
+
+    <form class="add" method="post" action="{{ url_for('add_whitelist') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <h3>+ New whitelist rule</h3>
+      <div class="formgrid">
+        {% for f in whitelist_fields %}
+        <div><label for="w-{{ f }}">{{ f }}</label><input type="text" id="w-{{ f }}" name="{{ f }}" placeholder="—"></div>
+        {% endfor %}
+        <div><label for="w-disposition">Disposition *</label>
+          <select id="w-disposition" name="disposition" required>
+            {% for disposition in whitelist_dispositions %}
+            <option value="{{ disposition }}">{{ disposition }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="wide"><label for="w-reason">Reason *</label><input type="text" id="w-reason" name="reason" placeholder="Reason sent to upstream (max 250 chars)" maxlength="250" required></div>
+      </div>
+      <div class="formfoot"><p class="hint" style="margin:0">Fields within a rule use AND. alarm_name_contains needs at least 6 characters.</p><button type="submit" class="btn go">Add whitelist rule</button></div>
+    </form>
+  </section>
+</main>
 </body>
 </html>

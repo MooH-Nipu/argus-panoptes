@@ -190,10 +190,10 @@ def _clean_rule(rule: dict[str, Any], allowed_fields: list[str]) -> dict[str, An
         if val is not None and str(val).strip() != "":
             cleaned[field] = str(val).strip()
     if not cleaned:
-        raise ValueError("Rule harus punya minimal satu field matching yang keisi.")
+        raise ValueError("Rule needs at least one filled matching field.")
     reason = str(rule.get("reason", "")).strip()
     if not reason:
-        raise ValueError("Rule wajib punya 'reason'.")
+        raise ValueError("Rule requires a 'reason'.")
     cleaned["reason"] = reason
     return cleaned
 
@@ -203,11 +203,11 @@ def clean_whitelist_rule(rule: dict[str, Any]) -> dict[str, Any]:
     contains = cleaned.get("alarm_name_contains", "")
     if contains and len(contains) < MIN_CONTAINS_LEN:
         raise ValueError(
-            f"alarm_name_contains minimal {MIN_CONTAINS_LEN} karakter (terlalu luas)."
+            f"alarm_name_contains needs at least {MIN_CONTAINS_LEN} characters (too broad)."
         )
     disposition = str(rule.get("disposition", "False Positive")).strip()
     if disposition not in WHITELIST_DISPOSITIONS:
-        raise ValueError("Disposition whitelist tidak valid.")
+        raise ValueError("Invalid whitelist disposition.")
     cleaned["disposition"] = disposition
     return cleaned
 
@@ -252,9 +252,9 @@ def update_whitelist_rule(
     with _CONFIG_LOCK:
         rules = load_whitelist()
         if not 0 <= index < len(rules):
-            raise IndexError("Index rule whitelist di luar jangkauan.")
+            raise IndexError("Whitelist rule index out of range.")
         if not expected_version or whitelist_rule_version(rules[index]) != expected_version:
-            raise RuleConflictError("Rule berubah. Refresh halaman sebelum edit ulang.")
+            raise RuleConflictError("Rule changed. Refresh the page before editing again.")
         rules[index] = clean_whitelist_rule(rule)
         save_whitelist(rules)
 
@@ -263,7 +263,7 @@ def delete_whitelist_rule(index: int) -> None:
     with _CONFIG_LOCK:
         rules = load_whitelist()
         if not 0 <= index < len(rules):
-            raise IndexError("Index rule whitelist di luar jangkauan.")
+            raise IndexError("Whitelist rule index out of range.")
         rules.pop(index)
         save_whitelist(rules)
 
@@ -279,7 +279,7 @@ def update_protect_rule(index: int, rule: dict[str, Any]) -> None:
     with _CONFIG_LOCK:
         rules = load_protect()
         if not 0 <= index < len(rules):
-            raise IndexError("Index rule protect di luar jangkauan.")
+            raise IndexError("Protect rule index out of range.")
         rules[index] = _clean_rule(rule, PROTECT_FIELDS)
         save_protect(rules)
 
@@ -288,6 +288,6 @@ def delete_protect_rule(index: int) -> None:
     with _CONFIG_LOCK:
         rules = load_protect()
         if not 0 <= index < len(rules):
-            raise IndexError("Index rule protect di luar jangkauan.")
+            raise IndexError("Protect rule index out of range.")
         rules.pop(index)
         save_protect(rules)
