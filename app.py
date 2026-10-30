@@ -599,19 +599,19 @@ def _audit(
 # Milestone achievement (jumlah alarm verified). Display doang.
 ACHIEVEMENTS = (
     (0, "Fresh Intern Energy",
-     "Masih semangat, masih percaya tiap alarm itu serangan beneran."),
+     "Still believes every alarm is a real attack. Adorable."),
     (1_000, "Alarm Janitor",
-     "Seribu alarm disapu. Belum ada yang ngucapin makasih, dan nggak akan ada."),
+     "A thousand alarms swept. Nobody said thanks. Nobody ever will."),
     (5_000, "Professional Noise Ignorer",
-     "Udah bisa bedain 'critical' beneran sama 'critical' karena agent lagi bete."),
+     "Can tell a real 'critical' from an agent having a bad day."),
     (10_000, "False Positive Whisperer",
-     "Alarm nggak jadi bunyi kalau kamu lewat. Mereka tau diri."),
+     "Alarms go quiet when you walk by. They know."),
     (20_000, "SIEM Sweeper Supreme",
-     "Tab Undefined kosong lebih sering daripada kulkas kos tanggal tua."),
+     "The Undefined tab is empty more often than your fridge at month's end."),
     (50_000, "Ticket Queue Exorcist",
-     "Antrian alarm diusir kayak setan. Vendor rule mulai takut sama kamu."),
+     "You banish alarm queues like demons. Vendor rules fear you now."),
     (100_000, "Lord of the Undefined Tab",
-     "Seratus ribu verdict. Kamu bukan analyst lagi, kamu lore-nya SOC ini."),
+     "A hundred thousand verdicts. You're not an analyst anymore. You're SOC lore."),
 )
 
 
