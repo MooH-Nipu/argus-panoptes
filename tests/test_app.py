@@ -314,6 +314,18 @@ class CycleDispositionTests(unittest.TestCase):
         audit.assert_not_called()
 
 
+class LoginTaglineTests(unittest.TestCase):
+    def test_login_title_rotates_through_taglines(self) -> None:
+        client = app.app.test_client()
+        seen = set()
+        for _ in range(40):
+            html = client.get("/login").get_data(as_text=True)
+            hits = [t for t in app.LOGIN_TAGLINES if f"<h1>{t}</h1>" in html]
+            self.assertEqual(len(hits), 1)
+            seen.add(hits[0])
+        self.assertGreater(len(seen), 1)
+
+
 class AchievementTests(unittest.TestCase):
     def test_progress_milestones(self) -> None:
         cases = [

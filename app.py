@@ -209,7 +209,16 @@ def validate_start_settings(form: Any, defaults: dict[str, Any]) -> dict[str, An
     }
 
 
+# Judul login, dirotasi random tiap render (filter Jinja `random`).
+LOGIN_TAGLINES = (
+    "SOC: SERING OVERTIME CUY",
+    "BOT YANG KERJA, ANALIS YANG NGOPI",
+    "FALSE POSITIVE ADALAH JALAN NINJAKU",
+    "CLOSE ALARM, OPEN KOPI",
+)
+
 app.jinja_env.globals.update(
+    login_taglines=LOGIN_TAGLINES,
     csrf_token=_csrf_token,
     whitelist_rule_version=cfg.whitelist_rule_version,
 )

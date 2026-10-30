@@ -9,7 +9,7 @@
     body{display:grid;place-items:center;padding:24px}
     .wrap{width:min(100%,430px)}
     .hero{margin-bottom:18px}
-    .hero h1{margin:6px 0 4px;font:800 26px/1.1 var(--mono);letter-spacing:.02em;background:linear-gradient(90deg,var(--green),var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent}
+    .hero h1{min-height:2.2em;text-wrap:balance;margin:6px 0 4px;font:800 26px/1.1 var(--mono);letter-spacing:.02em;background:linear-gradient(90deg,var(--green),var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent}
     .hero p{margin:0;color:var(--muted);font-size:13px}
     .term{margin:0 0 18px;padding:10px 12px;border:1px dashed var(--line2);border-radius:8px;background:var(--panel2);color:var(--faint);font:11px/1.7 var(--mono)}
     .term .ok{color:var(--green)}
@@ -21,8 +21,8 @@
 <body>
   <main class="wrap">
     <header class="hero">
-      <p class="eyebrow">upstream Operations</p>
-      <h1>ALPHA TIDAK KEREN TITIK</h1>
+      <p class="eyebrow">PAC Operations</p>
+      <h1>{{ login_taglines|random }}</h1>
       <p>Sign in with your upstream account to open the auto-close console.</p>
     </header>
 
