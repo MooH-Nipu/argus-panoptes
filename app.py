@@ -598,26 +598,34 @@ def _audit(
 
 # Milestone achievement (jumlah alarm verified). Display doang.
 ACHIEVEMENTS = (
-    (0, "Fresh Intern Energy"),
-    (1_000, "Alarm Janitor"),
-    (5_000, "Professional Noise Ignorer"),
-    (10_000, "False Positive Whisperer"),
-    (20_000, "SIEM Sweeper Supreme"),
-    (50_000, "Ticket Queue Exorcist"),
-    (100_000, "Lord of the Undefined Tab"),
+    (0, "Fresh Intern Energy",
+     "Masih semangat, masih percaya tiap alarm itu serangan beneran."),
+    (1_000, "Alarm Janitor",
+     "Seribu alarm disapu. Belum ada yang ngucapin makasih, dan nggak akan ada."),
+    (5_000, "Professional Noise Ignorer",
+     "Udah bisa bedain 'critical' beneran sama 'critical' karena agent lagi bete."),
+    (10_000, "False Positive Whisperer",
+     "Alarm nggak jadi bunyi kalau kamu lewat. Mereka tau diri."),
+    (20_000, "SIEM Sweeper Supreme",
+     "Tab Undefined kosong lebih sering daripada kulkas kos tanggal tua."),
+    (50_000, "Ticket Queue Exorcist",
+     "Antrian alarm diusir kayak setan. Vendor rule mulai takut sama kamu."),
+    (100_000, "Lord of the Undefined Tab",
+     "Seratus ribu verdict. Kamu bukan analyst lagi, kamu lore-nya SOC ini."),
 )
 
 
 def achievement_progress(count: int) -> dict[str, Any]:
     reached = [a for a in ACHIEVEMENTS if count >= a[0]]
     upcoming = [a for a in ACHIEVEMENTS if count < a[0]]
-    floor, title = reached[-1]
+    floor, title, description = reached[-1]
     nxt = upcoming[0] if upcoming else None
     pct = 100 if nxt is None else int((count - floor) * 100 / (nxt[0] - floor))
     return {
         "count": count,
         "title": title,
-        "unlocked": [name for need, name in reached if need > 0],
+        "description": description,
+        "unlocked": [name for need, name, _ in reached if need > 0],
         "next_title": nxt[1] if nxt else "",
         "next_at": nxt[0] if nxt else 0,
         "percent": pct,

@@ -333,6 +333,10 @@ class AchievementTests(unittest.TestCase):
                 if unlocked is not None:
                     self.assertEqual(prog["unlocked"], unlocked)
         self.assertEqual(len(app.achievement_progress(100_000)["unlocked"]), 6)
+        self.assertTrue(all(desc for _, _, desc in app.ACHIEVEMENTS))
+        self.assertEqual(
+            app.achievement_progress(1_000)["description"], app.ACHIEVEMENTS[1][2]
+        )
 
     def test_verified_count_dedups_and_skips_unverified(self) -> None:
         import os
