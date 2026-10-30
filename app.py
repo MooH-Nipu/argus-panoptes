@@ -312,7 +312,7 @@ def logout():
 
 def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
     """Loop utama: sapu tiap interval sampai stop_event di-set (§8).
-    Shift diambil dari jam sistem tiap awal siklus; range fetch = hari ini."""
+    Window shift dihitung dari jam sistem tiap awal siklus (cfg.shift_windows)."""
     page_size = int(settings["page_size"])
 
     interval = int(settings["poll_interval_seconds"])
@@ -324,21 +324,28 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
     )
 
     limit_txt = "tanpa batas" if max_close <= 0 else f"maks {max_close}/sapu"
-    bot.log(f"Bot start. Shift otomatis (jam sistem), range=hari ini, interval={interval}s, "
+    bot.log(f"Bot start. Shift otomatis (jam sistem, grace 1 jam), interval={interval}s, "
             f"protect_high_severity={'ON' if protect_high else 'OFF'}, "
             f"close {limit_txt}, jeda aksi random={action_delay[0]}-{action_delay[1]}s.")
 
     try:
         while not bot.stop_event.is_set():
             cycle_start = time.time()
-            shift = cfg.current_shift()
-            bot.log(f"Siklus mulai. Shift aktif: {shift}.")
-            _run_one_cycle(bot, cookie, shift, page_size, protect_high,
-                           max_close, last_days=cfg.FETCH_LAST_DAYS,
-                           dry_run=bool(settings.get("dry_run", True)),
-                           enable_suppress_fallback=bool(
-                               settings.get("enable_suppress_fallback", False)),
-                           action_delay=action_delay)
+            # Budget max_close dibagi antar window (shift lama + baru) biar
+            # cap per sapu nggak dobel pas grace period.
+            budget = max_close
+            for shift, date_from, date_to in cfg.shift_windows():
+                if budget <= 0 or bot.stop_event.is_set():
+                    break
+                bot.log(f"Siklus mulai. Shift {shift}, tanggal {date_from} s/d {date_to}.")
+                budget -= _run_one_cycle(
+                    bot, cookie, shift, page_size, protect_high, budget,
+                    date_from=date_from, date_to=date_to, last_days="",
+                    dry_run=bool(settings.get("dry_run", True)),
+                    enable_suppress_fallback=bool(
+                        settings.get("enable_suppress_fallback", False)),
+                    action_delay=action_delay,
+                )
 
             with bot.lock:
                 bot.stats["cycles"] += 1
@@ -380,8 +387,9 @@ def _run_one_cycle(
     dry_run: bool = True,
     enable_suppress_fallback: bool = False,
     action_delay: tuple[int, int] = (0, 0),
-) -> None:
+) -> int:
     """Satu siklus sapu: fetch -> evaluate -> group -> close -> verify (§4.4).
+    Balikin jumlah kandidat yang dipakai dari budget max_close.
 
     max_close: batas maks alarm yang di-close per sapu (<=0 = tanpa batas).
     Yang kelebihan ditunda ke sapu berikutnya.
@@ -396,8 +404,9 @@ def _run_one_cycle(
         date_from=date_from, date_to=date_to, last_days=last_days,
     )
     if not alarms:
-        bot.log("Nggak ada alarm Undefined di shift ini.")
-        return
+        bot.log("Nggak ada alarm Undefined di shift ini. (Kalau tab Undefined upstream ada "
+                "isi, string shift di config_store.SHIFTS kemungkinan nggak cocok.)")
+        return 0
 
     # Kelompokkan alarm yang ditandai close by reason (§4.4).
     # Field `email` di alarm = email peng-take (kosong kalau belum di-take).
@@ -468,7 +477,7 @@ def _run_one_cycle(
                 f'DRY RUN — {len(ids)} kandidat {disposition}, '
                 f'reason: "{reason}" IDs={ids}'
             )
-        return
+        return total_close
 
     # Close per kelompok reason, lalu verifikasi.
     should_stop = bot.stop_event.is_set
@@ -557,6 +566,7 @@ def _run_one_cycle(
 
         with bot.lock:
             bot.stats["closed"] += len(verified)
+    return total_close
 
 
 def _audit(
@@ -584,6 +594,34 @@ def _audit(
         }
         for aid in sorted(ids)
     ])
+
+
+# Milestone achievement (jumlah alarm verified). Display doang.
+ACHIEVEMENTS = (
+    (0, "Fresh Intern Energy"),
+    (1_000, "Alarm Janitor"),
+    (5_000, "Professional Noise Ignorer"),
+    (10_000, "False Positive Whisperer"),
+    (20_000, "SIEM Sweeper Supreme"),
+    (50_000, "Ticket Queue Exorcist"),
+    (100_000, "Lord of the Undefined Tab"),
+)
+
+
+def achievement_progress(count: int) -> dict[str, Any]:
+    reached = [a for a in ACHIEVEMENTS if count >= a[0]]
+    upcoming = [a for a in ACHIEVEMENTS if count < a[0]]
+    floor, title = reached[-1]
+    nxt = upcoming[0] if upcoming else None
+    pct = 100 if nxt is None else int((count - floor) * 100 / (nxt[0] - floor))
+    return {
+        "count": count,
+        "title": title,
+        "unlocked": [name for need, name in reached if need > 0],
+        "next_title": nxt[1] if nxt else "",
+        "next_at": nxt[0] if nxt else 0,
+        "percent": pct,
+    }
 
 
 # ---------- Routes: dashboard ----------
@@ -658,6 +696,12 @@ def status():
 
 
 # ---------- Routes: rules CRUD ----------
+
+@app.route("/achievements")
+@login_required
+def achievements():
+    return jsonify(achievement_progress(cfg.audit_verified_count()))
+
 
 @app.route("/rules")
 @login_required

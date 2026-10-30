@@ -11,7 +11,8 @@ import json
 import os
 import tempfile
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
+from datetime import time as dtime
 from typing import Any
 
 import yaml
@@ -29,21 +30,50 @@ class RuleConflictError(Exception):
     """Rule berubah sejak form edit dibuka."""
 
 
-# Pilihan shift buat dropdown UI.
-# CATATAN: cuma shift 1 yang CONFIRMED dari reverse-engineering (PROJECT_SPEC §3.2).
-# Shift 2 & 3 ADALAH ASUMSI pola 8-jam standar SOC — value string-nya HARUS
-# diverifikasi persis lewat DevTools upstream sebelum dipakai produksi, karena backend
-# nyocokin string mentah. Kalau salah, fetch bakal balik kosong tanpa error.
-SHIFT_OPTIONS = [
-    "1 (00:00 - 08:00)",
-    "2 (08:00 - 16:00)",
-    "3 (16:00 - 00:00)",
-]
+# Shift SOC: (jam mulai, string shift_time upstream). Jam dari Apang:
+# 22-06, 06-14, 14-22. CATATAN: string label HARUS persis sama dengan value
+# dropdown shift di upstream (backend nyocokin string mentah) — kalau salah, fetch
+# balik kosong tanpa error. Verifikasi lewat DevTools sebelum LIVE.
+SHIFTS = (
+    (22, "1 (22:00 - 06:00)"),
+    (6, "2 (06:00 - 14:00)"),
+    (14, "3 (14:00 - 22:00)"),
+)
+SHIFT_OPTIONS = [label for _, label in SHIFTS]
+
+# Selama 1 jam pertama shift baru, shift sebelumnya ikut disapu (sisa alarm
+# yang belum ke-close pas pergantian shift).
+SHIFT_GRACE = timedelta(hours=1)
+
+
+def _shift_start(t: datetime) -> tuple[datetime, str]:
+    """(waktu mulai, label) shift yang lagi jalan di waktu t."""
+    candidates = [
+        (datetime.combine(t.date() - timedelta(days=d), dtime(hour)), label)
+        for d in (0, 1)
+        for hour, label in SHIFTS
+    ]
+    return max(c for c in candidates if c[0] <= t)
 
 
 def current_shift(now: datetime | None = None) -> str:
-    """Shift aktif dari jam sistem lokal (blok 8 jam, mulai 00:00)."""
-    return SHIFT_OPTIONS[(now or datetime.now()).hour // 8]
+    """Label shift aktif dari jam sistem lokal."""
+    return _shift_start(now or datetime.now())[1]
+
+
+def shift_windows(now: datetime | None = None) -> list[tuple[str, str, str]]:
+    """Window fetch [(shift_time, date_from, date_to)], urut lama -> baru.
+    Range tanggal = tanggal mulai shift s/d tanggal selesai (shift 22-06
+    nyebrang tengah malam). Shift sebelumnya ikut kalau masih dalam grace."""
+    now = now or datetime.now()
+    start, label = _shift_start(now)
+    windows = [(label, start.date().isoformat(), now.date().isoformat())]
+    if now - start < SHIFT_GRACE:
+        prev_start, prev_label = _shift_start(start - timedelta(seconds=1))
+        windows.insert(
+            0, (prev_label, prev_start.date().isoformat(), start.date().isoformat())
+        )
+    return windows
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "poll_interval_seconds": 300,
@@ -58,9 +88,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "dry_run": True,
     "enable_suppress_fallback": False,
 }
-
-# Rentang fetch tetap: hari ini (last_days=1) + shift aktif dari jam sistem.
-FETCH_LAST_DAYS = "1"
 
 # Panjang minimum substring alarm_name_contains di whitelist. Substring
 # pendek (mis. "error") bisa nyapu hampir semua alarm.
@@ -132,6 +159,25 @@ def append_audit(records: list[dict[str, Any]]) -> None:
     )
     with _CONFIG_LOCK, open(AUDIT_PATH, "a", encoding="utf-8") as f:
         f.write(lines)
+
+
+def audit_verified_count() -> int:
+    """Jumlah alarm unik yang take+verdict-nya verified (sumber: audit.jsonl).
+    Baris rusak di-skip. ponytail: scan full file tiap call — oke sampai
+    ratusan ribu baris; kalau lambat, simpan counter terpisah."""
+    ids: set[str] = set()
+    try:
+        with open(AUDIT_PATH, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(rec, dict) and rec.get("verified") is True:
+                    ids.add(str(rec.get("alarm_id")))
+    except FileNotFoundError:
+        return 0
+    return len(ids)
 
 
 # ---------- Rules (whitelist & protect) ----------

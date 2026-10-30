@@ -7,7 +7,9 @@ RUN useradd --create-home --uid 10001 app
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Base image bawa pip/setuptools lama yang kena advisory (pip-audit).
+RUN pip install --no-cache-dir --upgrade pip==26.2.2 setuptools==84.2.1 \
+ && pip install --no-cache-dir -r requirements.txt
 
 COPY --chown=app:app . .
 RUN chmod +x /app/docker-entrypoint.sh

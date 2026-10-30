@@ -105,13 +105,56 @@ class StartSettingsValidationTests(unittest.TestCase):
     def test_current_shift_follows_system_clock(self) -> None:
         from datetime import datetime
 
-        cases = [(0, 0), (7, 0), (8, 1), (15, 1), (16, 2), (23, 2)]
-        for hour, idx in cases:
+        s1, s2, s3 = app.cfg.SHIFT_OPTIONS
+        cases = [(22, s1), (23, s1), (0, s1), (5, s1), (6, s2), (13, s2), (14, s3), (21, s3)]
+        for hour, label in cases:
             with self.subTest(hour=hour):
                 self.assertEqual(
-                    app.cfg.current_shift(datetime(2026, 10, 30, hour, 59)),
-                    app.cfg.SHIFT_OPTIONS[idx],
+                    app.cfg.current_shift(datetime(2026, 10, 30, hour, 59)), label
                 )
+
+    def test_shift_windows_include_previous_shift_for_one_hour(self) -> None:
+        from datetime import datetime
+
+        s1, s2, s3 = app.cfg.SHIFT_OPTIONS
+        cases = [
+            # 06:30 -> shift 2 + sisa shift 1 (mulai kemarin 22:00)
+            (datetime(2026, 10, 30, 6, 30), [
+                (s1, "2026-10-29", "2026-10-30"), (s2, "2026-10-30", "2026-10-30")]),
+            # 07:00 pas -> grace habis, shift 2 doang
+            (datetime(2026, 10, 30, 7, 0), [(s2, "2026-10-30", "2026-10-30")]),
+            # 22:15 -> shift 1 baru + sisa shift 3
+            (datetime(2026, 10, 30, 22, 15), [
+                (s3, "2026-10-30", "2026-10-30"), (s1, "2026-10-30", "2026-10-30")]),
+            # 02:00 -> shift 1 nyebrang tengah malam
+            (datetime(2026, 10, 31, 2, 0), [(s1, "2026-10-30", "2026-10-31")]),
+            # 14:59 -> shift 3 + sisa shift 2
+            (datetime(2026, 10, 30, 14, 59), [
+                (s2, "2026-10-30", "2026-10-30"), (s3, "2026-10-30", "2026-10-30")]),
+        ]
+        for now, expected in cases:
+            with self.subTest(now=now):
+                self.assertEqual(app.cfg.shift_windows(now), expected)
+
+    def test_bot_loop_shares_close_budget_across_shift_windows(self) -> None:
+        bot = app.BotState()
+        calls = []
+
+        def fake_cycle(bot_, cookie, shift, page_size, protect, budget, **kw):
+            calls.append((shift, budget, kw["date_from"], kw["date_to"]))
+            return 30
+
+        windows = [("old", "2026-10-29", "2026-10-30"), ("new", "2026-10-30", "2026-10-30")]
+        settings = {**app.cfg.DEFAULT_SETTINGS, "max_close_per_cycle": 40}
+        with patch.object(app.cfg, "shift_windows", return_value=windows), patch.object(
+            app, "_run_one_cycle", side_effect=fake_cycle
+        ), patch.object(bot.stop_event, "wait", side_effect=lambda s: bot.stop_event.set()):
+            app._bot_loop(bot, "cookie", settings)
+
+        self.assertEqual(calls, [
+            ("old", 40, "2026-10-29", "2026-10-30"),
+            ("new", 10, "2026-10-30", "2026-10-30"),
+        ])
 
     def test_whitelist_rejects_too_short_contains(self) -> None:
         with self.assertRaisesRegex(ValueError, "minimal"):
@@ -269,6 +312,46 @@ class CycleDispositionTests(unittest.TestCase):
             app._run_one_cycle(bot, "cookie", app.cfg.SHIFT_OPTIONS[0], 100, False, 10)
 
         audit.assert_not_called()
+
+
+class AchievementTests(unittest.TestCase):
+    def test_progress_milestones(self) -> None:
+        cases = [
+            (0, "Fresh Intern Energy", "Alarm Janitor", 0, []),
+            (500, "Fresh Intern Energy", "Alarm Janitor", 50, []),
+            (1_000, "Alarm Janitor", "Professional Noise Ignorer", 0, ["Alarm Janitor"]),
+            (3_000, "Alarm Janitor", "Professional Noise Ignorer", 50, ["Alarm Janitor"]),
+            (100_000, "Lord of the Undefined Tab", "", 100, None),
+            (250_000, "Lord of the Undefined Tab", "", 100, None),
+        ]
+        for count, title, nxt, pct, unlocked in cases:
+            with self.subTest(count=count):
+                prog = app.achievement_progress(count)
+                self.assertEqual(prog["title"], title)
+                self.assertEqual(prog["next_title"], nxt)
+                self.assertEqual(prog["percent"], pct)
+                if unlocked is not None:
+                    self.assertEqual(prog["unlocked"], unlocked)
+        self.assertEqual(len(app.achievement_progress(100_000)["unlocked"]), 6)
+
+    def test_verified_count_dedups_and_skips_unverified(self) -> None:
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory(dir=os.getenv("TMPDIR")) as tmp:
+            path = os.path.join(tmp, "audit.jsonl")
+            with patch.object(app.cfg, "AUDIT_PATH", path):
+                self.assertEqual(app.cfg.audit_verified_count(), 0)
+                app.cfg.append_audit([
+                    {"alarm_id": "A", "verified": True},
+                    {"alarm_id": "A", "verified": True},
+                    {"alarm_id": "B", "verified": False},
+                    {"alarm_id": "C", "verified": None},
+                    {"alarm_id": "D", "verified": True},
+                ])
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write("not json\n")
+                self.assertEqual(app.cfg.audit_verified_count(), 2)
 
 
 class AuditFileTests(unittest.TestCase):
