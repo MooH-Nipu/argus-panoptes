@@ -106,7 +106,7 @@ class StartSettingsValidationTests(unittest.TestCase):
         from datetime import datetime
 
         s1, s2, s3 = app.cfg.SHIFT_OPTIONS
-        cases = [(22, s1), (23, s1), (0, s1), (5, s1), (6, s2), (13, s2), (14, s3), (21, s3)]
+        cases = [(0, s1), (7, s1), (8, s2), (15, s2), (16, s3), (23, s3)]
         for hour, label in cases:
             with self.subTest(hour=hour):
                 self.assertEqual(
@@ -118,19 +118,19 @@ class StartSettingsValidationTests(unittest.TestCase):
 
         s1, s2, s3 = app.cfg.SHIFT_OPTIONS
         cases = [
-            # 06:30 -> shift 2 + sisa shift 1 (mulai kemarin 22:00)
-            (datetime(2026, 10, 30, 6, 30), [
-                (s1, "2026-10-29", "2026-10-30"), (s2, "2026-10-30", "2026-10-30")]),
-            # 07:00 pas -> grace habis, shift 2 doang
-            (datetime(2026, 10, 30, 7, 0), [(s2, "2026-10-30", "2026-10-30")]),
-            # 22:15 -> shift 1 baru + sisa shift 3
-            (datetime(2026, 10, 30, 22, 15), [
-                (s3, "2026-10-30", "2026-10-30"), (s1, "2026-10-30", "2026-10-30")]),
-            # 02:00 -> shift 1 nyebrang tengah malam
-            (datetime(2026, 10, 31, 2, 0), [(s1, "2026-10-30", "2026-10-31")]),
-            # 14:59 -> shift 3 + sisa shift 2
-            (datetime(2026, 10, 30, 14, 59), [
+            # 08:30 -> shift 2 + sisa shift 1 (mulai hari sama 00:00)
+            (datetime(2026, 10, 30, 8, 30), [
+                (s1, "2026-10-30", "2026-10-30"), (s2, "2026-10-30", "2026-10-30")]),
+            # 09:00 pas -> grace habis, shift 2 doang
+            (datetime(2026, 10, 30, 9, 0), [(s2, "2026-10-30", "2026-10-30")]),
+            # 16:15 -> shift 3 baru + sisa shift 2
+            (datetime(2026, 10, 30, 16, 15), [
                 (s2, "2026-10-30", "2026-10-30"), (s3, "2026-10-30", "2026-10-30")]),
+            # 00:30 -> shift 1 baru + sisa shift 3 (mulai kemarin 16:00, nyebrang midnight)
+            (datetime(2026, 10, 31, 0, 30), [
+                (s3, "2026-10-30", "2026-10-31"), (s1, "2026-10-31", "2026-10-31")]),
+            # 15:59 -> shift 2 doang (grace shift 2 udah habis)
+            (datetime(2026, 10, 30, 15, 59), [(s2, "2026-10-30", "2026-10-30")]),
         ]
         for now, expected in cases:
             with self.subTest(now=now):

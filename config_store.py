@@ -30,14 +30,15 @@ class RuleConflictError(Exception):
     """Rule berubah sejak form edit dibuka."""
 
 
-# Shift SOC: (jam mulai, string shift_time upstream). Jam dari Apang:
-# 22-06, 06-14, 14-22. CATATAN: string label HARUS persis sama dengan value
-# dropdown shift di upstream (backend nyocokin string mentah) — kalau salah, fetch
-# balik kosong tanpa error. Verifikasi lewat DevTools sebelum LIVE.
+# Shift SOC: (jam mulai, string shift_time upstream). String label HARUS persis
+# sama dengan value tombol shift di upstream (backend nyocokin string mentah) —
+# kalau salah, fetch balik kosong tanpa error. upstream masih pakai jam lama
+# (00-08, 08-16, 16-00); L1 pindah jadwal baru tapi tombol upstream belum berubah,
+# jadi jam pemicu ikut batas upstream biar string & shift aktif selalu cocok.
 SHIFTS = (
-    (22, "1 (22:00 - 06:00)"),
-    (6, "2 (06:00 - 14:00)"),
-    (14, "3 (14:00 - 22:00)"),
+    (0, "1 (00:00 - 08:00)"),
+    (8, "2 (08:00 - 16:00)"),
+    (16, "3 (16:00 - 00:00)"),
 )
 SHIFT_OPTIONS = [label for _, label in SHIFTS]
 
