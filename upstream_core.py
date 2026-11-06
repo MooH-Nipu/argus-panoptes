@@ -26,7 +26,7 @@ import httpx
 # --- Next-Action hash (dari reverse-engineering, PROJECT_SPEC §3.2/§3.3) ---
 # CATATAN: hash ini BISA BERUBAH kalau upstream di-redeploy. Kalau bot gagal terus
 # (bukan sesekali), kemungkinan besar hash-nya berubah -> re-capture via DevTools.
-ACTION_FETCH = "bee83c17d35226c023bbd6e224127ffb35c2a0ce"
+ACTION_FETCH = "40de15dd0b9a75a8b540564a38a896be6b2d975029"  # fetchAlarms, 2026-11-06
 ACTION_CLOSE = "c5c23f25ee9d43b0c9dbcbad2972fdccc7ff6a28"
 
 # --- Alur TAKE alarm (2 langkah: TAKE dulu, baru set FP) ---
@@ -179,7 +179,9 @@ def _call_server_action(
                 raise ArgusAuthError(
                     "403 Forbidden — session likely expired or Next-Action hash changed."
                 )
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                # Surface the body: 400 here usually means a stale Next-Action hash or payload shape.
+                raise ArgusParseError(f"HTTP {resp.status_code} from {url}: {resp.text[:300]!r}")
             return parse_rsc_response(resp.text)
         except (ArgusParseError, ArgusAuthError):
             raise
