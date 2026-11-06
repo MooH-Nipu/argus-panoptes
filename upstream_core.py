@@ -27,7 +27,7 @@ import httpx
 # CATATAN: hash ini BISA BERUBAH kalau upstream di-redeploy. Kalau bot gagal terus
 # (bukan sesekali), kemungkinan besar hash-nya berubah -> re-capture via DevTools.
 ACTION_FETCH = "40de15dd0b9a75a8b540564a38a896be6b2d975029"  # fetchAlarms, 2026-11-06
-ACTION_CLOSE = "c5c23f25ee9d43b0c9dbcbad2972fdccc7ff6a28"
+ACTION_CLOSE = "783bea1be3c3866aa0e2a75a4ab5433d1104477657"  # setStatusAndMessageNew, 2026-11-06
 
 # --- Alur TAKE alarm (2 langkah: TAKE dulu, baru set FP) ---
 # Confirmed dari capture DevTools + docx "alur close alarm": alarm HARUS di-take
@@ -38,9 +38,7 @@ ACTION_CLOSE = "c5c23f25ee9d43b0c9dbcbad2972fdccc7ff6a28"
 # di-SKIP karena itu cuma fetch daftar "similar alerts" buat display (ada pagination).
 # Payload masing-masing: ["<id>"] buat 2 pertama, ["<id>", ""] buat ketiga.
 ACTION_TAKE = [
-    "3ebcfca0facaca8d3d0356d1158ab7011ad5b05b",  # payload ["id"]
-    "3a4e0f37dc4683a3aab86fc3aa8cd13f0cbac521",  # payload ["id"]
-    "78b466fbcc6b7b8cf1b9315f3daab22e06d47bb9",  # payload ["id", ""]
+    "400b9bdc7e6097f8532cb431d208d5f0af723cab53",  # takeAlarm(id), single call since 2026-11-06
 ]
 
 # Reason max 250 char (dari modal "Reason for Escalation (Optional) — Max 250 characters").
@@ -70,6 +68,8 @@ SUPPRESS_TRACK_BY = ("src_ip", "dest_ip")
 HIGH_SEVERITIES = {"high", "critical"}
 
 DEFAULT_TIMEOUT = 30.0
+VERIFY_RETRIES = 2
+VERIFY_RETRY_DELAY = 4.0  # seconds; upstream tab list updates after the action returns
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2.0  # detik, dikali attempt
 
@@ -517,7 +517,7 @@ def _take_alarm(
     pas klik "Take Alarm" (lihat komentar ACTION_TAKE). Tanpa ini, set FP gagal
     diam-diam. Payload: 2 pertama ["id"], ketiga ["id", ""]."""
     for i, action in enumerate(ACTION_TAKE):
-        payload = [aid, ""] if i == 2 else [aid]
+        payload = [aid]
         _call_server_action(
             client, base_url, cookie, action, payload, referer_path=ALARM_PATH,
             retry_transient=False,
@@ -748,15 +748,20 @@ def verify_disposition(
         return (set(), set())
     if disposition not in DISPOSITIONS:
         raise ValueError(f"Invalid disposition: {disposition}")
-    moved_alarms = fetch_all_open_alarms(
-        base_url, cookie, shift_time, page_size=page_size,
-        status=disposition, log=None,
-        date_from=date_from, date_to=date_to, last_days=last_days,
-    )
-    moved_ids = {str(a.get("_id")) for a in moved_alarms}
     want = {str(i) for i in ids}
-    verified = want & moved_ids
-    missing = want - moved_ids
+    for attempt in range(VERIFY_RETRIES + 1):
+        moved_alarms = fetch_all_open_alarms(
+            base_url, cookie, shift_time, page_size=page_size,
+            status=disposition, log=None,
+            date_from=date_from, date_to=date_to, last_days=last_days,
+        )
+        moved_ids = {str(a.get("_id")) for a in moved_alarms}
+        verified = want & moved_ids
+        missing = want - moved_ids
+        if not missing:
+            break
+        if attempt < VERIFY_RETRIES:
+            time.sleep(VERIFY_RETRY_DELAY)  # upstream list lags the mutation by a few seconds
     if log and missing:
         log(f"  WARNING: {len(missing)} IDs not found in {disposition} tab: {sorted(missing)}")
     return (verified, missing)

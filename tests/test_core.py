@@ -226,6 +226,19 @@ class DispositionVerificationTests(unittest.TestCase):
         self.assertEqual(missing, set())
         self.assertEqual(fetch.call_args.kwargs["status"], "Exclusion")
 
+    def test_verification_retries_when_tab_list_lags(self) -> None:
+        with patch.object(
+            core, "fetch_all_open_alarms", side_effect=[[], [{"_id": "A"}]]
+        ) as fetch, patch.object(core.time, "sleep") as sleep:
+            verified, missing = core.verify_disposition(
+                "https://upstream.test", "cookie", ["A"], "1 (00:00 - 08:00)",
+                disposition="Exclusion",
+            )
+
+        self.assertEqual((verified, missing), ({"A"}, set()))
+        self.assertEqual(fetch.call_count, 2)
+        sleep.assert_called_once_with(core.VERIFY_RETRY_DELAY)
+
 
 class ServerActionRetryTests(unittest.TestCase):
     def test_auth_error_is_never_retried(self) -> None:
