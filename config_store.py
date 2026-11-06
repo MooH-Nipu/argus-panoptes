@@ -11,7 +11,7 @@ import json
 import os
 import tempfile
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from datetime import time as dtime
 from typing import Any
 
@@ -45,6 +45,14 @@ SHIFT_OPTIONS = [label for _, label in SHIFTS]
 # yang belum ke-close pas pergantian shift).
 SHIFT_GRACE = timedelta(hours=1)
 
+# Shift boundaries and date filter on the upstream server run on UTC+5 (verified 2026-11-06:
+# created_at is UTC and shift 2 = 01:00-08:59 UTC), not the PC clock (UTC+7).
+UPSTREAM_TZ = timezone(timedelta(hours=5))
+
+
+def _upstream_now() -> datetime:
+    return datetime.now(UPSTREAM_TZ).replace(tzinfo=None)
+
 
 def _shift_start(t: datetime) -> tuple[datetime, str]:
     """(waktu mulai, label) shift yang lagi jalan di waktu t."""
@@ -57,15 +65,15 @@ def _shift_start(t: datetime) -> tuple[datetime, str]:
 
 
 def current_shift(now: datetime | None = None) -> str:
-    """Label shift aktif dari jam sistem lokal."""
-    return _shift_start(now or datetime.now())[1]
+    """Label shift aktif dari jam upstream (UTC+5)."""
+    return _shift_start(now or _upstream_now())[1]
 
 
 def shift_windows(now: datetime | None = None) -> list[tuple[str, str, str]]:
     """Window fetch [(shift_time, date_from, date_to)], urut lama -> baru.
     Range tanggal = tanggal mulai shift s/d tanggal selesai (shift 22-06
     nyebrang tengah malam). Shift sebelumnya ikut kalau masih dalam grace."""
-    now = now or datetime.now()
+    now = now or _upstream_now()
     start, label = _shift_start(now)
     windows = [(label, start.date().isoformat(), now.date().isoformat())]
     if now - start < SHIFT_GRACE:
