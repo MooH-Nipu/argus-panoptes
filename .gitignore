@@ -8,3 +8,4 @@ venv/
 .env
 data/
 audit.jsonl
+stats.json

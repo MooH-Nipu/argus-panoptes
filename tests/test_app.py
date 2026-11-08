@@ -358,7 +358,8 @@ class AchievementTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory(dir=os.getenv("TMPDIR")) as tmp:
             path = os.path.join(tmp, "audit.jsonl")
-            with patch.object(app.cfg, "AUDIT_PATH", path):
+            with patch.object(app.cfg, "AUDIT_PATH", path), \
+                    patch.object(app.cfg, "STATS_PATH", os.path.join(tmp, "stats.json")):
                 self.assertEqual(app.cfg.audit_verified_count(), 0)
                 app.cfg.append_audit([
                     {"alarm_id": "A", "verified": True},
@@ -388,6 +389,27 @@ class AuditFileTests(unittest.TestCase):
                 ids = [json.loads(line)["alarm_id"] for line in f]
 
         self.assertEqual(ids, ["A", "B", "C"])
+
+    def test_verified_count_survives_audit_loss(self) -> None:
+        """Progress achievement nggak boleh balik 0 kalau audit.jsonl hilang."""
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory(dir=os.getenv("TMPDIR")) as tmp:
+            with patch.object(app.cfg, "AUDIT_PATH", os.path.join(tmp, "audit.jsonl")), \
+                    patch.object(app.cfg, "STATS_PATH", os.path.join(tmp, "stats.json")):
+                app.cfg.append_audit([
+                    {"alarm_id": "A", "verified": True},
+                    {"alarm_id": "B", "verified": True},
+                ])
+                self.assertEqual(app.cfg.audit_verified_count(), 2)
+                os.remove(os.path.join(tmp, "audit.jsonl"))
+                self.assertEqual(app.cfg.audit_verified_count(), 2)
+                # ponytail: setelah log hilang, ID baru nggak bisa didedupe
+                # lawan yang lama — count nge-floor di high-water sampai
+                # jumlah di file baru lewat angka itu.
+                app.cfg.append_audit([{"alarm_id": "C", "verified": True}])
+                self.assertEqual(app.cfg.audit_verified_count(), 2)
 
 
 class WebSecurityTests(unittest.TestCase):

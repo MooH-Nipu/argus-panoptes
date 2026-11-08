@@ -23,6 +23,9 @@ SETTINGS_PATH = os.path.join(BASE_DIR, "settings.yaml")
 WHITELIST_PATH = os.path.join(BASE_DIR, "whitelist.yaml")
 PROTECT_PATH = os.path.join(BASE_DIR, "protect_list.yaml")
 AUDIT_PATH = os.path.join(BASE_DIR, "audit.jsonl")
+# High-water mark achievement: tahan progress walau audit.jsonl hilang/rotate
+# (redeploy, cleanup). Satu angka doang, ditulis atomik.
+STATS_PATH = os.path.join(BASE_DIR, "stats.json")
 _CONFIG_LOCK = threading.RLock()
 
 
@@ -166,9 +169,11 @@ def append_audit(records: list[dict[str, Any]]) -> None:
 
 
 def audit_verified_count() -> int:
-    """Jumlah alarm unik yang take+verdict-nya verified (sumber: audit.jsonl).
-    Baris rusak di-skip. ponytail: scan full file tiap call — oke sampai
-    ratusan ribu baris; kalau lambat, simpan counter terpisah."""
+    """Jumlah alarm unik yang take+verdict-nya verified (sumber: audit.jsonl),
+    di-floor pakai high-water mark di stats.json biar progress achievement
+    nggak reset kalau audit log hilang/rotate. Baris rusak di-skip.
+    ponytail: scan full file tiap call — oke sampai ratusan ribu baris;
+    kalau lambat, simpan counter terpisah."""
     ids: set[str] = set()
     try:
         with open(AUDIT_PATH, encoding="utf-8") as f:
@@ -180,8 +185,35 @@ def audit_verified_count() -> int:
                 if isinstance(rec, dict) and rec.get("verified") is True:
                     ids.add(str(rec.get("alarm_id")))
     except FileNotFoundError:
+        pass
+    high = _read_high_water()
+    if len(ids) > high:
+        try:
+            _write_high_water(len(ids))
+        except OSError:
+            pass  # gagal simpan high-water jangan bikin /achievements 500
+        return len(ids)
+    return high
+
+
+def _read_high_water() -> int:
+    try:
+        with open(STATS_PATH, encoding="utf-8") as f:
+            return int(json.load(f).get("verified_count", 0))
+    except (FileNotFoundError, ValueError, TypeError, AttributeError):
         return 0
-    return len(ids)
+
+
+def _write_high_water(count: int) -> None:
+    fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(STATS_PATH), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"verified_count": count}, f)
+        os.replace(tmp_path, STATS_PATH)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
 
 
 # ---------- Rules (whitelist & protect) ----------
