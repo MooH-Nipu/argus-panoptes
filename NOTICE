@@ -1,8 +1,6 @@
-This repository is based on  by :
-https://github.com/
+Argus Panoptes
 
-Original alarm-triage workflow and reverse-engineering credit belongs to the original author.
-Hardening, tests, dry-run controls, and UI changes by Febry Alvian.
+Hardened alarm auto-close control panel: dry-run by default, guardrails,
+tests, and operator-managed whitelist rules.
 
-The upstream repository did not include a license when this derivative was created.
-This notice is attribution, not a grant of rights.
+Implementation by Febry Alvian.

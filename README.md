@@ -2,10 +2,6 @@
 
 Local Flask control panel for reviewing and closing SOC alarms from operator-managed whitelist rules.
 
-## Credits
-
-Based on the original [](https://github.com/) by [](https://github.com/). This hardened edition preserves the original alarm-triage reverse engineering and operator rule workflow, with security controls, dry-run mode, tests, and UI improvements added by Febry Alvian.
-
 ## Requirements
 
 - Python 3.9+
@@ -63,7 +59,7 @@ docker compose cp app:/tmp/argus-config.tgz ./argus-config.tgz
 
 ## Distribution status
 
-Internal deployment is supported on a trusted, isolated LAN. HTTP is intentionally supported for the local control panel; the alarm platform remains HTTPS-only. Do not expose it to guest Wi-Fi, the internet, or untrusted networks. Public redistribution is not authorized by this repository: upstream `` had no license when this derivative was created. Obtain an explicit license or written permission before making this repository public.
+Internal deployment is supported on a trusted, isolated LAN. HTTP is intentionally supported for the local control panel; the alarm platform remains HTTPS-only. Do not expose it to guest Wi-Fi, the internet, or untrusted networks.
 
 ## Tests and checks
 
