@@ -98,11 +98,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "enable_suppress_fallback": False,
 }
 
-# Panjang minimum substring alarm_name_contains di whitelist. Substring
-# pendek (mis. "error") bisa nyapu hampir semua alarm.
-# ponytail: guard panjang doang; kalau masih kebobolan, tambah preview match.
-MIN_CONTAINS_LEN = 6
-
 # Field matching yang valid per tipe rule (dipakai buat validasi input UI).
 WHITELIST_FIELDS = [
     "alarm_name_equals",
@@ -209,11 +204,6 @@ def _clean_rule(rule: dict[str, Any], allowed_fields: list[str]) -> dict[str, An
 
 def clean_whitelist_rule(rule: dict[str, Any]) -> dict[str, Any]:
     cleaned = _clean_rule(rule, WHITELIST_FIELDS)
-    contains = cleaned.get("alarm_name_contains", "")
-    if contains and len(contains) < MIN_CONTAINS_LEN:
-        raise ValueError(
-            f"alarm_name_contains needs at least {MIN_CONTAINS_LEN} characters (too broad)."
-        )
     disposition = str(rule.get("disposition", "False Positive")).strip()
     if disposition not in WHITELIST_DISPOSITIONS:
         raise ValueError("Invalid whitelist disposition.")

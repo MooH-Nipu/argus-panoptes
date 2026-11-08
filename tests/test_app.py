@@ -156,13 +156,12 @@ class StartSettingsValidationTests(unittest.TestCase):
             ("new", 10, "2026-10-30", "2026-10-30"),
         ])
 
-    def test_whitelist_rejects_too_short_contains(self) -> None:
-        with self.assertRaisesRegex(ValueError, "at least"):
-            app.cfg.clean_whitelist_rule({"alarm_name_contains": "error", "reason": "x"})
-        cleaned = app.cfg.clean_whitelist_rule(
-            {"alarm_name_contains": "Invalid URI", "reason": "x"}
-        )
-        self.assertEqual(cleaned["alarm_name_contains"], "Invalid URI")
+    def test_whitelist_accepts_any_contains_length(self) -> None:
+        for value in ("x", "error", "Invalid URI"):
+            cleaned = app.cfg.clean_whitelist_rule(
+                {"alarm_name_contains": value, "reason": "x"}
+            )
+            self.assertEqual(cleaned["alarm_name_contains"], value)
 
     def test_accepts_bounded_settings_and_defaults_to_dry_run(self) -> None:
         settings = app.validate_start_settings(
