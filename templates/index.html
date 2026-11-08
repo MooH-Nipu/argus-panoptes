@@ -76,9 +76,9 @@
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="{{ url_for('index') }}"><span class="logo" aria-hidden="true">AC</span><span><b>ARGUS PANOPTES<span class="cursor" aria-hidden="true"></span></b><small>alarm triage console</small></span></a>
+  <a class="brand" href="{{ url_for('index') }}"><span class="logo" aria-hidden="true">AP</span><span><b>ARGUS PANOPTES<span class="cursor" aria-hidden="true"></span></b><small>alarm triage console</small></span></a>
   <nav class="nav">
-    <span class="chip" title="Signed-in account and upstream target">{{ username }}{% if base_url %} · {{ base_url }}{% endif %}</span>
+    <span class="chip" title="Signed-in account and alarm platform target">{{ username }}{% if base_url %} · {{ base_url }}{% endif %}</span>
     <a class="btn sm" href="{{ url_for('rules') }}">Rules</a>
     <form method="post" action="{{ url_for('logout') }}" style="margin:0"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn sm bad" type="submit">Logout</button></form>
   </nav>
@@ -125,7 +125,7 @@
         </div>
         <div class="opt"><input class="switch" type="checkbox" name="protect_high_severity" id="protect_high_severity" {% if settings.protect_high_severity %}checked{% endif %}><label for="protect_high_severity">Protect high &amp; critical<small>Never auto-close high or critical severity, even when a whitelist rule matches.</small></label></div>
         <div class="opt"><input class="switch" type="checkbox" name="enable_suppress_fallback" id="enable_suppress_fallback" {% if settings.enable_suppress_fallback %}checked{% endif %}><label for="enable_suppress_fallback">Suppress fallback<small>Off by default. Used only after re-verification fails.</small></label></div>
-        <div class="arm"><div class="opt"><input class="switch danger" type="checkbox" name="live_mode" id="live_mode"><label for="live_mode">LIVE mode: allow upstream mutations<small>Off = fetch, evaluate, and log candidates only.</small></label></div></div>
+        <div class="arm"><div class="opt"><input class="switch danger" type="checkbox" name="live_mode" id="live_mode"><label for="live_mode">LIVE mode: allow platform mutations<small>Off = fetch, evaluate, and log candidates only.</small></label></div></div>
         <div class="actions"><button type="submit" class="btn go" id="btnStart">Start dry run</button><button type="button" class="btn bad" id="btnStop" disabled>Stop</button></div>
       </form>
     </section>
@@ -168,7 +168,7 @@
   function renderLogs(lines){const key=lines.length+'|'+lines[lines.length-1];if(key===lastLogKey)return;lastLogKey=key;const atBottom=logEl.scrollHeight-logEl.scrollTop-logEl.clientHeight<40;logEl.replaceChildren(...lines.map(l=>{const s=document.createElement('span');s.className=cls(l);s.textContent=l;return s}));if(atBottom)logEl.scrollTop=logEl.scrollHeight}
   liveMode.addEventListener('change',renderMode);renderMode();
   setInterval(()=>{if(botRunning&&cooldown>0){cooldown--;renderStatus()}},1000);
-  $('startForm').addEventListener('submit',async e=>{e.preventDefault();showErr('');if(liveMode.checked&&!confirm('Start LIVE mode? Alarms matching the whitelist may be mutated in upstream.'))return;btnStart.disabled=true;try{const res=await fetch('/start',{method:'POST',headers:{'X-CSRF-Token':csrfToken},body:new FormData(e.target)}),data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||'Failed to start.');lastLogKey='';poll()}catch(err){showErr(err.message);btnStart.disabled=false}});
+  $('startForm').addEventListener('submit',async e=>{e.preventDefault();showErr('');if(liveMode.checked&&!confirm('Start LIVE mode? Alarms matching the whitelist may be mutated in the platform.'))return;btnStart.disabled=true;try{const res=await fetch('/start',{method:'POST',headers:{'X-CSRF-Token':csrfToken},body:new FormData(e.target)}),data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||'Failed to start.');lastLogKey='';poll()}catch(err){showErr(err.message);btnStart.disabled=false}});
   btnStop.addEventListener('click',async()=>{btnStop.disabled=true;try{const res=await fetch('/stop',{method:'POST',headers:{'X-CSRF-Token':csrfToken}}),data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||'Failed to stop.')}catch(err){showErr(err.message);btnStop.disabled=false}});
   async function poll(){try{const res=await fetch('/status');if(res.redirected){location.href=res.url;return}const s=await res.json();for(const k of ['closed','skipped','left','cycles'])$('s_'+k).textContent=(s.stats?.[k]??0).toLocaleString('en-US');if(s.logs?.length)renderLogs(s.logs);botRunning=!!s.running;cooldown=s.cooldown??0;renderStatus();btnStart.disabled=botRunning;btnStop.disabled=!botRunning;if(errBox.textContent.startsWith('Status unavailable'))showErr('')}catch(err){showErr('Status unavailable: '+err.message)}}
   setInterval(poll,3000);poll();

@@ -23,7 +23,7 @@
     <header class="hero">
       <p class="eyebrow">PAC Operations</p>
       <h1>{{ login_taglines|random }}</h1>
-      <p>Sign in with your upstream account to open the auto-close console.</p>
+      <p>Sign in with your operations account to open the auto-close console.</p>
     </header>
 
     <section class="panel" aria-labelledby="login-title">
@@ -41,7 +41,7 @@
       <form method="post" action="{{ url_for('login') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="field">
-          <label for="base_url">upstream base URL</label>
+          <label for="base_url">Platform base URL</label>
           <input type="text" id="base_url" name="base_url" placeholder="https://192.168.1.10"
                  value="{{ base_url or '' }}" aria-describedby="base-url-hint" {% if not error %}autofocus{% endif %} required>
           <p class="hint" id="base-url-hint">HTTPS with a private IP and no path. Hostnames are rejected to prevent DNS rebinding.</p>
@@ -60,7 +60,7 @@
         <button type="submit" class="btn go">Enter console <span class="arw" aria-hidden="true">&rarr;</span></button>
       </form>
 
-      <p class="foot">This session can change alarm state in upstream. Use only verified endpoints and accounts.</p>
+      <p class="foot">This session can change alarm state on the platform. Use only verified endpoints and accounts.</p>
     </section>
   </main>
 </body>

@@ -51,7 +51,7 @@
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="{{ url_for('index') }}"><span class="logo" aria-hidden="true">AC</span><span><b>ARGUS PANOPTES<span class="cursor" aria-hidden="true"></span></b><small>rule editor</small></span></a>
+  <a class="brand" href="{{ url_for('index') }}"><span class="logo" aria-hidden="true">AP</span><span><b>ARGUS PANOPTES<span class="cursor" aria-hidden="true"></span></b><small>rule editor</small></span></a>
   <nav class="nav">
     <a class="btn sm" href="{{ url_for('index') }}"><span class="arw" aria-hidden="true">&larr;</span> Console</a>
     <form method="post" action="{{ url_for('logout') }}" style="margin:0"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn sm bad" type="submit">Logout</button></form>
@@ -171,7 +171,7 @@
             {% endfor %}
           </select>
         </div>
-        <div class="wide"><label for="w-reason">Reason *</label><input type="text" id="w-reason" name="reason" placeholder="Reason sent to upstream (max 250 chars)" maxlength="250" required></div>
+        <div class="wide"><label for="w-reason">Reason *</label><input type="text" id="w-reason" name="reason" placeholder="Reason sent to the platform (max 250 chars)" maxlength="250" required></div>
       </div>
       <div class="formfoot"><p class="hint" style="margin:0">Fields within a rule use AND.</p><button type="submit" class="btn go">Add whitelist rule</button></div>
     </form>

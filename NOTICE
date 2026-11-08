@@ -1,7 +1,7 @@
 This repository is based on  by :
 https://github.com/
 
-Original upstream workflow and reverse-engineering credit belongs to the original author.
+Original alarm-triage workflow and reverse-engineering credit belongs to the original author.
 Hardening, tests, dry-run controls, and UI changes by Febry Alvian.
 
 The upstream repository did not include a license when this derivative was created.

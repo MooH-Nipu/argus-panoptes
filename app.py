@@ -1,14 +1,14 @@
 """Flask control panel Argus Panoptes.
 
 Model pemakaian (PROJECT_SPEC §5): lokal per-PC, on-demand. Analyst buka
-http://localhost:5000 -> login (username+password akun upstream) -> pilih shift
+http://localhost:5000 -> login (username+password akun platform) -> pilih shift
 & interval -> Start -> bot jalan di background thread, sapu tiap interval,
 live log muncul di dashboard -> Stop kapan aja.
 
 Whitelist & protect list di-CRUD lewat halaman Rules. Setting (interval,
 shift, toggle protect-severity) diatur dari dashboard.
 
-CATATAN KEAMANAN: app ini didesain buat localhost. Password upstream cuma
+CATATAN KEAMANAN: app ini didesain buat localhost. Password platform cuma
 dipegang di memory selama bot jalan (buat login sekali di awal), nggak
 disimpan ke disk. Jangan expose ke network tanpa HTTPS + auth tambahan.
 """
@@ -175,9 +175,9 @@ def validate_base_url(value: str) -> str:
     try:
         address = ipaddress.ip_address(parsed.hostname)
     except ValueError as exc:
-        raise ValueError("upstream Base URL must be a private IP literal, not a hostname.") from exc
+        raise ValueError("Platform base URL must be a private IP literal, not a hostname.") from exc
     if not _is_private_upstream_address(str(address)):
-        raise ValueError("upstream Base URL must point to a safe private network.")
+        raise ValueError("Platform base URL must point to a safe private network.")
     display_host = f"[{address.compressed}]" if address.version == 6 else address.compressed
     return f"https://{display_host}" + (f":{port}" if port != 443 else "")
 
@@ -251,7 +251,7 @@ def add_security_headers(response):
 
 
 # ---------- Auth level-aplikasi ----------
-# Browser hanya menyimpan sid acak. Cookie upstream tinggal di BotState server-side.
+# Browser hanya menyimpan sid acak. Cookie platform tinggal di BotState server-side.
 
 def login_required(view):
     @wraps(view)
@@ -413,7 +413,7 @@ def _run_one_cycle(
         date_from=date_from, date_to=date_to, last_days=last_days,
     )
     if not alarms:
-        bot.log("No Undefined alarms in this shift. (If upstream's Undefined tab is not "
+        bot.log("No Undefined alarms in this shift. (If the platform's Undefined tab is not "
                 "empty, the shift string in config_store.SHIFTS probably doesn't match.)")
         return 0
 

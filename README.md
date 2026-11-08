@@ -1,15 +1,15 @@
 # Argus Panoptes
 
-Local Flask control panel for reviewing and closing upstream alarms from operator-managed whitelist rules.
+Local Flask control panel for reviewing and closing SOC alarms from operator-managed whitelist rules.
 
 ## Credits
 
-Based on the original [](https://github.com/) by [](https://github.com/). This hardened edition preserves the original upstream reverse-engineering and operator rule workflow, with security controls, dry-run mode, tests, and UI improvements added by Febry Alvian.
+Based on the original [](https://github.com/) by [](https://github.com/). This hardened edition preserves the original alarm-triage reverse engineering and operator rule workflow, with security controls, dry-run mode, tests, and UI improvements added by Febry Alvian.
 
 ## Requirements
 
 - Python 3.9+
-- HTTPS upstream origin using a private IP literal
+- HTTPS alarm platform origin using a private IP literal
 
 ## Setup
 
@@ -25,7 +25,7 @@ python app.py
 
 Open `http://127.0.0.1:5000`.
 
-upstream certificate verification is disabled in source because supported upstream servers use internal self-signed certificates. Login targets remain restricted to private IP literals over HTTPS.
+Certificate verification is disabled in source because supported alarm platforms use internal self-signed certificates. Login targets remain restricted to private IP literals over HTTPS.
 
 ## Docker / LAN review
 
@@ -49,13 +49,13 @@ docker compose cp app:/tmp/argus-config.tgz ./argus-config.tgz
 
 ## Safety model
 
-- Browser keeps only opaque local session ID. upstream token stays in server memory.
-- upstream origin follows validated login input dynamically; only private IPv4/IPv6 HTTPS targets are accepted. Hostnames are rejected to prevent DNS rebinding.
+- Browser keeps only opaque local session ID. Platform token stays in server memory.
+- Platform origin follows validated login input dynamically; only private IPv4/IPv6 HTTPS targets are accepted. Hostnames are rejected to prevent DNS rebinding.
 - Dry-run is default. It fetches, evaluates, and logs candidates without mutation.
 - Live mode requires explicit checkbox and confirmation.
 - Whitelist starts empty; operators add rules manually one by one through Rules UI.
 - Automation rules can submit `False Positive` or `Exclusion`; rules without disposition default to `False Positive`.
-- `Exclusion` uses the captured three-argument upstream action payload and never enters suppress fallback.
+- `Exclusion` uses the captured three-argument platform action payload and never enters suppress fallback.
 - Protect rules override whitelist rules when both match.
 - Close cap is mandatory: 1–500 alarms per cycle.
 - Suppress fallback is disabled by default and verifies again before use.
@@ -63,7 +63,7 @@ docker compose cp app:/tmp/argus-config.tgz ./argus-config.tgz
 
 ## Distribution status
 
-Internal deployment is supported on a trusted, isolated LAN. HTTP is intentionally supported for the local control panel; upstream upstream remains HTTPS-only. Do not expose it to guest Wi-Fi, the internet, or untrusted networks. Public redistribution is not authorized by this repository: upstream `` had no license when this derivative was created. Obtain an explicit license or written permission before making this repository public.
+Internal deployment is supported on a trusted, isolated LAN. HTTP is intentionally supported for the local control panel; the alarm platform remains HTTPS-only. Do not expose it to guest Wi-Fi, the internet, or untrusted networks. Public redistribution is not authorized by this repository: upstream `` had no license when this derivative was created. Obtain an explicit license or written permission before making this repository public.
 
 ## Tests and checks
 

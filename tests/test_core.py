@@ -144,7 +144,7 @@ class LoginFlowTests(unittest.TestCase):
         # Cookie callback-url yang di-set halaman login harus kebawa ke POST.
         self.assertIn("__Secure-next-auth.callback-url", callback_headers["cookie"])
 
-        # Header ala Chrome — upstream nge-reset request non-browser (502).
+        # Header ala Chrome — platform nge-reset request non-browser (502).
         for path in ("/api/auth/csrf", "/api/auth/callback/credentials"):
             self.assertTrue(seen_headers[path]["user-agent"].startswith("Mozilla/5.0"))
             self.assertEqual(seen_headers[path]["referer"], "https://upstream.test/auth/login")

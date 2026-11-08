@@ -8,7 +8,7 @@ Isi:
   - evaluate_alarm()       : matching prioritas protect-sev -> protect -> whitelist (§4.3)
 
 Semua request server action pakai HTTP client biasa (httpx) — nggak perlu
-browser automation karena upstream credentials-based tanpa OTP/SSO (§3.4).
+browser automation karena platform credentials-based tanpa OTP/SSO (§3.4).
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 import httpx
 
 # --- Next-Action hash (dari reverse-engineering, PROJECT_SPEC §3.2/§3.3) ---
-# CATATAN: hash ini BISA BERUBAH kalau upstream di-redeploy. Kalau bot gagal terus
+# CATATAN: hash ini BISA BERUBAH kalau platform di-redeploy. Kalau bot gagal terus
 # (bukan sesekali), kemungkinan besar hash-nya berubah -> re-capture via DevTools.
 ACTION_FETCH = "40de15dd0b9a75a8b540564a38a896be6b2d975029"  # fetchAlarms, 2026-11-06
 ACTION_CLOSE = "783bea1be3c3866aa0e2a75a4ab5433d1104477657"  # setStatusAndMessageNew, 2026-11-06
@@ -44,12 +44,12 @@ ACTION_TAKE = [
 # Reason max 250 char (dari modal "Reason for Escalation (Optional) — Max 250 characters").
 REASON_MAX_LEN = 250
 
-# Path halaman list alarm di upstream. Server action Next.js di-POST ke path
+# Path halaman list alarm di platform. Server action Next.js di-POST ke path
 # halaman tempat action dipanggil (BUKAN root "/"). Confirmed dari deployment:
-# Request URL = {origin}/x-alarm. Kalau upstream pindah path, ganti di sini.
+# Request URL = {origin}/x-alarm. Kalau platform pindah path, ganti di sini.
 ALARM_PATH = "/x-alarm"
 
-# Status tab di upstream (§3.2).
+# Status tab di platform (§3.2).
 STATUS_UNDEFINED = "Undefined"
 STATUS_FALSE_POSITIVE = "False Positive"
 STATUS_EXCLUSION = "Exclusion"
@@ -69,7 +69,7 @@ HIGH_SEVERITIES = {"high", "critical"}
 
 DEFAULT_TIMEOUT = 30.0
 VERIFY_RETRIES = 2
-VERIFY_RETRY_DELAY = 4.0  # seconds; upstream tab list updates after the action returns
+VERIFY_RETRY_DELAY = 4.0  # seconds; platform tab list updates after the action returns
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2.0  # detik, dikali attempt
 
@@ -81,23 +81,23 @@ def _h2_available() -> bool:
 
 
 def _new_client(http2: bool = False) -> httpx.Client:
-    """Build client for private-IP upstream servers with self-signed TLS."""
+    """Build client for private-IP platform servers with self-signed TLS."""
     if http2 and _h2_available():
         return httpx.Client(
             follow_redirects=False,
             timeout=DEFAULT_TIMEOUT,
-            verify=False,  # Internal self-signed upstream; private-IP HTTPS enforced.  # nosec B501
+            verify=False,  # Internal self-signed platform; private-IP HTTPS enforced.  # nosec B501
             http2=True,
         )
     return httpx.Client(
         follow_redirects=False,
         timeout=DEFAULT_TIMEOUT,
-        verify=False,  # Internal self-signed upstream; private-IP HTTPS enforced.  # nosec B501
+        verify=False,  # Internal self-signed platform; private-IP HTTPS enforced.  # nosec B501
     )
 
 
 class ArgusError(Exception):
-    """Error umum saat komunikasi dengan upstream."""
+    """Error umum saat komunikasi dengan platform."""
 
 
 class LoginError(ArgusError):
@@ -105,7 +105,7 @@ class LoginError(ArgusError):
 
 
 class ArgusAuthError(ArgusError):
-    """Sesi upstream tidak valid; retry tidak akan memperbaikinya."""
+    """Sesi platform tidak valid; retry tidak akan memperbaikinya."""
 
 
 class ArgusParseError(ArgusError):
@@ -119,7 +119,7 @@ class ArgusParseError(ArgusError):
 # ---------- RSC response parser (§3.1) ----------
 
 def parse_rsc_response(raw_text: str) -> Any:
-    """Server action upstream balikin format RSC streaming (multi-baris `N:{...}`).
+    """Server action platform balikin format RSC streaming (multi-baris `N:{...}`).
     Data utama selalu di baris yang diawali `1:`."""
     for line in raw_text.splitlines():
         if line.startswith("1:"):
@@ -174,7 +174,7 @@ def _call_server_action(
         try:
             resp = client.post(url, headers=headers, content=body, timeout=DEFAULT_TIMEOUT)
             if resp.status_code >= 500:
-                raise ArgusError(f"Server error {resp.status_code} from upstream.")
+                raise ArgusError(f"Server error {resp.status_code} from platform.")
             if resp.status_code == 403:
                 raise ArgusAuthError(
                     "403 Forbidden — session likely expired or Next-Action hash changed."
@@ -197,7 +197,7 @@ def _call_server_action(
 # ---------- Login (§3.4) ----------
 
 # Jalur login minik browser sepersis mungkin — sejak update Sep-2026
-# endpoint auth upstream nge-reset request non-browser (nginx balas 502) walau
+# endpoint auth platform nge-reset request non-browser (nginx balas 502) walau
 # kredensialnya benar. Ditiru: urutan navigasi, header, dan transport (h2).
 BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -285,7 +285,7 @@ def login(base_url: str, username: str, password: str) -> str:
 
         # Step 2: POST kredensial.
         # PENTING: login_method harus persis "Basic" (B kapital). Capture browser
-        # pasca-update upstream (2026-09-25) nunjukin server strict soal nilai ini —
+        # pasca-update platform (2026-09-25) nunjukin server strict soal nilai ini —
         # lowercase "basic" dibales 401 CredentialsSignin walau kredensial bener.
         form = {
             "username": username,
@@ -306,11 +306,11 @@ def login(base_url: str, username: str, password: str) -> str:
         )
         if login_resp.status_code >= 400:
             # Sertakan body respons biar error di UI langsung nunjukin alasan
-            # asli dari upstream (mis. error=CredentialsSignin&code=...) — bukan
+            # asli dari platform (mis. error=CredentialsSignin&code=...) — bukan
             # cuma "401 Unauthorized" yang bikin nebak-nebak.
             body = " ".join((login_resp.text or "").split())[:300]
             raise LoginError(
-                f"upstream rejected login (HTTP {login_resp.status_code}). "
+                f"Platform rejected login (HTTP {login_resp.status_code}). "
                 f"Response: {body or '<empty>'}"
             )
 
@@ -319,7 +319,7 @@ def login(base_url: str, username: str, password: str) -> str:
         if not session_cookie:
             raise LoginError(
                 "Login failed — no session token found. "
-                "Check username/password, or the upstream login flow may have changed."
+                "Check username/password, or the platform login flow may have changed."
             )
         return session_cookie
 
@@ -351,7 +351,7 @@ def _build_fetch_payload(
     last_days: str = "1",
 ) -> list:
     """Payload fetch alarm. date range vs last_days MUTUALLY EXCLUSIVE (§3.2,
-    confirmed dari payload upstream): kalau date_from & date_to keisi (format
+    confirmed dari payload platform): kalau date_from & date_to keisi (format
     YYYY-MM-DD), keduanya dikirim dan last_days dikosongin. Kalau nggak, pakai
     last_days. Shift_time selalu dikirim (AND sama range/last_days)."""
     df = (date_from or "").strip()
@@ -393,7 +393,7 @@ def fetch_alarms_page(
     if not isinstance(result, dict):
         raise ArgusError(
             f"Unexpected fetch response format. Got {type(result).__name__}, "
-            "expected dict. upstream response format likely changed."
+            "expected dict. Platform response format likely changed."
         )
     return result
 
@@ -439,7 +439,7 @@ def _norm(s: Any) -> str:
     """Normalisasi buat matching. Selain lower+trim, samain varian dash
     (en-dash/em-dash/minus -> hyphen biasa) + collapse whitespace jadi 1 spasi.
     Ini nutup bug exact-match gagal gara-gara beda karakter tak-kasat-mata:
-    judul upstream sering pakai en-dash '–' (U+2013) sementara rule diketik hyphen
+    judul alarm platform sering pakai en-dash '–' (U+2013) sementara rule diketik hyphen
     '-' (U+002D) — mata sama, `==` beda."""
     text = str(s or "")
     for dash in ("–", "—", "−"):  # en-dash, em-dash, minus sign
@@ -562,7 +562,7 @@ def close_alarms(
     Alur ini confirmed dari capture DevTools: mutation tanpa take = silent fail.
 
     Batch multi-ID di-DROP karena take kelihatannya per-alarm. Reason dipotong 250
-    char (batas modal upstream). Balikin jumlah alarm yang berhasil dikirim (bukan
+    char (batas modal platform). Balikin jumlah alarm yang berhasil dikirim (bukan
     verified — verifikasi terpisah). Alarm yang error di-skip, sisanya lanjut.
 
     should_stop: callback dicek di awal tiap iterasi — kalau True, berhenti di
@@ -761,7 +761,7 @@ def verify_disposition(
         if not missing:
             break
         if attempt < VERIFY_RETRIES:
-            time.sleep(VERIFY_RETRY_DELAY)  # upstream list lags the mutation by a few seconds
+            time.sleep(VERIFY_RETRY_DELAY)  # platform tab list lags the mutation by a few seconds
     if log and missing:
         log(f"  WARNING: {len(missing)} IDs not found in {disposition} tab: {sorted(missing)}")
     return (verified, missing)

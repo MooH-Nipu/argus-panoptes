@@ -33,11 +33,11 @@ class RuleConflictError(Exception):
     """Rule berubah sejak form edit dibuka."""
 
 
-# Shift SOC: (jam mulai, string shift_time upstream). String label HARUS persis
-# sama dengan value tombol shift di upstream (backend nyocokin string mentah) —
-# kalau salah, fetch balik kosong tanpa error. upstream masih pakai jam lama
-# (00-08, 08-16, 16-00); L1 pindah jadwal baru tapi tombol upstream belum berubah,
-# jadi jam pemicu ikut batas upstream biar string & shift aktif selalu cocok.
+# Shift SOC: (jam mulai, string shift_time platform). String label HARUS persis
+# sama dengan value tombol shift di platform (backend nyocokin string mentah) —
+# kalau salah, fetch balik kosong tanpa error. Platform masih pakai jam lama
+# (00-08, 08-16, 16-00); L1 pindah jadwal baru tapi tombol platform belum berubah,
+# jadi jam pemicu ikut batas platform biar string & shift aktif selalu cocok.
 SHIFTS = (
     (0, "1 (00:00 - 08:00)"),
     (8, "2 (08:00 - 16:00)"),
@@ -49,7 +49,7 @@ SHIFT_OPTIONS = [label for _, label in SHIFTS]
 # yang belum ke-close pas pergantian shift).
 SHIFT_GRACE = timedelta(hours=1)
 
-# Shift boundaries and date filter on the upstream server run on UTC+5 (verified 2026-11-06:
+# Shift boundaries and date filter on the platform server run on UTC+5 (verified 2026-11-06:
 # created_at is UTC and shift 2 = 01:00-08:59 UTC), not the PC clock (UTC+7).
 UPSTREAM_TZ = timezone(timedelta(hours=5))
 
@@ -69,7 +69,7 @@ def _shift_start(t: datetime) -> tuple[datetime, str]:
 
 
 def current_shift(now: datetime | None = None) -> str:
-    """Label shift aktif dari jam upstream (UTC+5)."""
+    """Label shift aktif dari jam platform (UTC+5)."""
     return _shift_start(now or _upstream_now())[1]
 
 
