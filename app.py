@@ -747,7 +747,7 @@ def rules():
         protect=cfg.load_protect(),
         whitelist_fields=cfg.WHITELIST_FIELDS,
         whitelist_dispositions=cfg.WHITELIST_DISPOSITIONS,
-            numeric_fields=cfg.NUMERIC_FIELDS,
+        numeric_fields=cfg.NUMERIC_FIELDS,
         protect_fields=cfg.PROTECT_FIELDS,
     )
 
