@@ -448,6 +448,15 @@ def _norm(s: Any) -> str:
     return text.strip().lower()
 
 
+def _as_int(value: Any) -> Optional[int]:
+    """Parse angka dari respons platform. None kalau nggak valid/kosong —
+    dipakai buat fail-closed: rule count nggak match kalau datanya nggak ada."""
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
 def _match_rule(alarm: dict[str, Any], rule: dict[str, Any]) -> bool:
     """True kalau alarm cocok SEMUA field matching yang keisi di rule (AND)."""
     name = _norm(alarm.get("alarm_name"))
@@ -455,6 +464,7 @@ def _match_rule(alarm: dict[str, Any], rule: dict[str, Any]) -> bool:
     agent = _norm(alarm.get("agent_name"))
     client = _norm(alarm.get("client"))
     sev = _norm(alarm.get("severity"))
+    count = _as_int(alarm.get("alarm_count"))
 
     checks = {
         "alarm_name_equals": lambda v: name == _norm(v),
@@ -463,6 +473,13 @@ def _match_rule(alarm: dict[str, Any], rule: dict[str, Any]) -> bool:
         "agent_name_equals": lambda v: agent == _norm(v),
         "client_equals": lambda v: client == _norm(v),
         "severity_equals": lambda v: sev == _norm(v),
+        # alarm_count nggak kebaca -> False (fail-closed), jangan sampai
+        # alarm tanpa count malah ke-close. Rule value rusak juga -> False,
+        # bukan TypeError yang bikin loop mati.
+        "alarm_count_gte": lambda v: count is not None and _as_int(v) is not None
+        and count >= _as_int(v),
+        "alarm_count_lte": lambda v: count is not None and _as_int(v) is not None
+        and count <= _as_int(v),
     }
     matched_any = False
     for field, check in checks.items():

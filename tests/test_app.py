@@ -40,6 +40,44 @@ class PackagedConfigTests(unittest.TestCase):
 
 
 class StartSettingsValidationTests(unittest.TestCase):
+    def test_alarm_count_rule_validation(self) -> None:
+        cleaned = app.cfg.clean_whitelist_rule(
+            {"alarm_count_gte": "200", "reason": "high volume"}
+        )
+        self.assertEqual(cleaned["alarm_count_gte"], "200")
+
+        # "007" dinormalkan biar rule version stabil
+        self.assertEqual(
+            app.cfg.clean_whitelist_rule(
+                {"alarm_count_lte": "007", "reason": "r"}
+            )["alarm_count_lte"],
+            "7",
+        )
+
+        for bad in ({"alarm_count_gte": "abc"}, {"alarm_count_gte": "-5"},
+                    {"alarm_count_lte": "1.5"}, {"alarm_count_gte": " "}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                app.cfg.clean_whitelist_rule({**bad, "reason": "r"})
+
+        with self.assertRaisesRegex(ValueError, "must be <="):
+            app.cfg.clean_whitelist_rule(
+                {"alarm_count_gte": "500", "alarm_count_lte": "100", "reason": "r"}
+            )
+
+    def test_alarm_count_rule_roundtrips_through_yaml(self) -> None:
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(app.cfg, "WHITELIST_PATH", os.path.join(tmp, "w.yaml")):
+                app.cfg.add_whitelist_rule(
+                    {"alarm_count_gte": "100", "alarm_count_lte": "500", "reason": "r"}
+                )
+                rules = app.cfg.load_whitelist()
+
+        self.assertEqual(rules[0]["alarm_count_gte"], "100")
+        self.assertEqual(rules[0]["alarm_count_lte"], "500")
+
     def test_whitelist_accepts_client_field(self) -> None:
         cleaned = app.cfg._clean_rule(
             {"alarm_name_equals": "Alarm A", "client_equals": "DP-TASPEN", "reason": "FP"},
@@ -102,7 +140,26 @@ class StartSettingsValidationTests(unittest.TestCase):
         for key in ("shift_time", "date_from", "date_to", "last_days"):
             self.assertNotIn(key, settings)
 
-    def test_current_shift_follows_system_clock(self) -> None:
+    def test_current_shift_follows_upstream_wib_clock(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        # Jam UTC yang di-fix harus dipetakan ke WIB, bukan UTC+5 (bug lama:
+        # batas shift geser 2 jam). 01:00 UTC = 08:00 WIB = awal shift 2.
+        utc = timezone.utc
+        cases = [
+            (datetime(2026, 10, 30, 17, 0, tzinfo=utc), "1 (00:00 - 08:00)"),  # 00:00 WIB
+            (datetime(2026, 10, 30, 1, 0, tzinfo=utc), "2 (08:00 - 16:00)"),    # 08:00 WIB
+            (datetime(2026, 10, 30, 8, 59, tzinfo=utc), "2 (08:00 - 16:00)"),   # 15:59 WIB
+            (datetime(2026, 10, 30, 9, 0, tzinfo=utc), "3 (16:00 - 00:00)"),    # 16:00 WIB
+            (datetime(2026, 10, 30, 16, 59, tzinfo=utc), "3 (16:00 - 00:00)"),  # 23:59 WIB
+        ]
+        for moment, label in cases:
+            wib = (moment + timedelta(hours=7)).replace(tzinfo=None)
+            with self.subTest(utc=moment.isoformat()):
+                self.assertEqual(app.cfg.current_shift(wib), label)
+        self.assertEqual(app.cfg.UPSTREAM_TZ.utcoffset(None), timedelta(hours=7))
+
+    def test_shift_boundaries_at_platform_hours(self) -> None:
         from datetime import datetime
 
         s1, s2, s3 = app.cfg.SHIFT_OPTIONS
@@ -152,9 +209,27 @@ class StartSettingsValidationTests(unittest.TestCase):
             app._bot_loop(bot, "cookie", settings)
 
         self.assertEqual(calls, [
-            ("old", 40, "2026-10-29", "2026-10-30"),
-            ("new", 10, "2026-10-30", "2026-10-30"),
+            ("new", 40, "2026-10-30", "2026-10-30"),
+            ("old", 10, "2026-10-29", "2026-10-30"),
         ])
+
+    def test_active_shift_swept_before_grace_shift_cannot_starve_it(self) -> None:
+        """Kalau sisa alarm shift lama ngabisin budget, shift aktif tetap kesapu."""
+        bot = app.BotState()
+        calls = []
+
+        def fake_cycle(bot_, cookie, shift, page_size, protect, budget, **kw):
+            calls.append(shift)
+            return budget  # window pertama makan seluruh budget
+
+        windows = [("old", "2026-10-29", "2026-10-30"), ("new", "2026-10-30", "2026-10-30")]
+        settings = {**app.cfg.DEFAULT_SETTINGS, "max_close_per_cycle": 100}
+        with patch.object(app.cfg, "shift_windows", return_value=windows), patch.object(
+            app, "_run_one_cycle", side_effect=fake_cycle
+        ), patch.object(bot.stop_event, "wait", side_effect=lambda s: bot.stop_event.set()):
+            app._bot_loop(bot, "cookie", settings)
+
+        self.assertEqual(calls[0], "new")
 
     def test_whitelist_accepts_any_contains_length(self) -> None:
         for value in ("x", "error", "Invalid URI"):
@@ -519,6 +594,26 @@ class WebSecurityTests(unittest.TestCase):
         response = self.client.get("/status")
         self.assertEqual(response.status_code, 302)
 
+    def test_status_exposes_live_shift_windows_for_ui(self) -> None:
+        """/status harus bawa shift aktif biar badge UI ikut ganti tanpa refresh."""
+        token = self.csrf()
+        with patch.object(app.core, "login", return_value="TOKEN"), patch.object(
+            app.cfg, "shift_windows",
+            return_value=[("2 (08:00 - 16:00)", "2026-10-30", "2026-10-30")],
+        ):
+            self.client.post("/login", data={
+                "csrf_token": token,
+                "base_url": "https://10.20.30.40",
+                "username": "analyst",
+                "password": "password",
+            })
+            data = self.client.get("/status").json
+
+        self.assertEqual(
+            data["shift_windows"], [["2 (08:00 - 16:00)", "2026-10-30", "2026-10-30"]]
+        )
+        self.assertRegex(data["clock"], r"^\d{2}:\d{2}:\d{2}$")
+
     def test_health_is_public_and_minimal(self) -> None:
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
@@ -649,6 +744,8 @@ class WebSecurityTests(unittest.TestCase):
             "alarm_type_equals": "",
             "agent_name_equals": "",
             "client_equals": "DCI",
+            "alarm_count_gte": "",
+            "alarm_count_lte": "",
             "disposition": "False Positive",
             "reason": "Known benign",
         })

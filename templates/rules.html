@@ -119,7 +119,7 @@
       <article class="rule">
         <div class="rule-top">
           <div class="conds">
-            {% for f in whitelist_fields if rule.get(f) %}{% if not loop.first %}<span class="and">AND</span>{% endif %}<span class="cond"><em>{{ f }}</em> = <b>{{ rule[f] }}</b></span>{% endfor %}
+            {% for f in whitelist_fields if rule.get(f) %}{% if not loop.first %}<span class="and">AND</span>{% endif %}<span class="cond"><em>{{ f|replace('_gte', '')|replace('_lte', '') }}</em> {{ '≥' if f.endswith('_gte') else ('≤' if f.endswith('_lte') else '=') }} <b>{{ rule[f] }}</b></span>{% endfor %}
           </div>
           <div class="tools">
             <span class="badge {{ 'ex' if disp == 'Exclusion' else 'fp' }}">{{ disp }}</span>
@@ -137,7 +137,7 @@
             <input type="hidden" name="expected_version" value="{{ whitelist_rule_version(rule) }}">
             <div class="formgrid">
               {% for f in whitelist_fields %}
-              <div><label for="edit-{{ rule_index }}-{{ f }}">{{ f }}</label><input type="text" id="edit-{{ rule_index }}-{{ f }}" name="{{ f }}" value="{{ rule.get(f, '') }}" placeholder="—" title="{{ rule.get(f, '') }}"></div>
+              <div><label for="edit-{{ rule_index }}-{{ f }}">{{ f }}</label><input type="{{ 'number' if f in numeric_fields else 'text' }}" {% if f in numeric_fields %}min="0" step="1" inputmode="numeric"{% endif %} id="edit-{{ rule_index }}-{{ f }}" name="{{ f }}" value="{{ rule.get(f, '') }}" placeholder="{{ '0' if f in numeric_fields else '—' }}" title="{{ rule.get(f, '') }}"></div>
               {% endfor %}
               <div><label for="edit-{{ rule_index }}-disposition">Disposition *</label>
                 <select id="edit-{{ rule_index }}-disposition" name="disposition" required>
@@ -162,7 +162,7 @@
       <h3>+ New whitelist rule</h3>
       <div class="formgrid">
         {% for f in whitelist_fields %}
-        <div><label for="w-{{ f }}">{{ f }}</label><input type="text" id="w-{{ f }}" name="{{ f }}" placeholder="—"></div>
+        <div><label for="w-{{ f }}">{{ f }}</label><input type="{{ 'number' if f in numeric_fields else 'text' }}" {% if f in numeric_fields %}min="0" step="1" inputmode="numeric"{% endif %} id="w-{{ f }}" name="{{ f }}" placeholder="{{ '0' if f in numeric_fields else '—' }}"></div>
         {% endfor %}
         <div><label for="w-disposition">Disposition *</label>
           <select id="w-disposition" name="disposition" required>

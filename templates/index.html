@@ -105,13 +105,13 @@
       <p class="eyebrow">Run configuration</p>
       <h2 id="control-title">Mission control <span class="mode" id="modeBadge">dry run</span></h2>
 
-      <div class="label">Shift window (system clock)</div>
-      <div class="shifts">
+      <div class="label">Shift window (platform clock, WIB) · <span id="shiftNow" class="mono" style="color:var(--muted)">—</span></div>
+      <div class="shifts" id="shifts">
         {% for shift, date_from, date_to in shift_windows %}
-        <div class="shift{% if not loop.last %} grace{% endif %}"><b>{{ shift }}</b><small>{% if not loop.last %}grace sweep · {% endif %}{{ date_from }}{% if date_to != date_from %} <span class="arw">→</span> {{ date_to }}{% endif %}</small></div>
+        <div class="shift{% if not loop.last %} grace{% endif %}"><b>{{ shift }}{% if loop.last %} <span id="shiftActive" style="font:700 9px var(--mono);letter-spacing:.1em;color:var(--green)">ACTIVE</span>{% endif %}</b><small>{% if not loop.last %}grace sweep · {% endif %}{{ date_from }}{% if date_to != date_from %} <span class="arw">→</span> {{ date_to }}{% endif %}</small></div>
         {% endfor %}
       </div>
-      <p class="hint" style="margin:-8px 0 16px">Recalculated every cycle. The previous shift is also swept during the first hour of a new shift.</p>
+      <p class="hint" style="margin:-8px 0 16px">Switches by itself at each shift boundary. The previous shift is also swept during the first hour of a new shift.</p>
 
       <form id="startForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -160,7 +160,8 @@
   const csrfToken={{ csrf_token()|tojson }};
   const $=id=>document.getElementById(id);
   const errBox=$('errBox'),btnStart=$('btnStart'),btnStop=$('btnStop'),logEl=$('log'),statusText=$('statusText'),liveMode=$('live_mode'),modeBadge=$('modeBadge');
-  let cooldown=0,botRunning=false,lastLogKey='',lastAch=null;
+  let cooldown=0,botRunning=false,lastLogKey='',lastAch=null,lastShifts='';
+  const JS=JSON.stringify;
   function showErr(msg){errBox.textContent=msg;errBox.hidden=!msg}
   function renderMode(){const live=liveMode.checked;document.body.classList.toggle('live',live);modeBadge.textContent=live?'live mutation':'dry run';btnStart.textContent=live?'Start LIVE run':'Start dry run'}
   function renderStatus(){document.body.classList.toggle('running',botRunning);$('coreState').textContent=botRunning?(cooldown>0?'WAIT':'SWEEP'):'IDLE';$('coreSub').textContent=botRunning?(cooldown>0?cooldown+'s':'working'):'standby';statusText.textContent=!botRunning?'Bot is not running.':cooldown>0?`Running · next cycle in ${cooldown}s`:'Running · sweeping alarms...'}
@@ -170,7 +171,8 @@
   setInterval(()=>{if(botRunning&&cooldown>0){cooldown--;renderStatus()}},1000);
   $('startForm').addEventListener('submit',async e=>{e.preventDefault();showErr('');if(liveMode.checked&&!confirm('Start LIVE mode? Alarms matching the whitelist may be mutated in the platform.'))return;btnStart.disabled=true;try{const res=await fetch('/start',{method:'POST',headers:{'X-CSRF-Token':csrfToken},body:new FormData(e.target)}),data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||'Failed to start.');lastLogKey='';poll()}catch(err){showErr(err.message);btnStart.disabled=false}});
   btnStop.addEventListener('click',async()=>{btnStop.disabled=true;try{const res=await fetch('/stop',{method:'POST',headers:{'X-CSRF-Token':csrfToken}}),data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||'Failed to stop.')}catch(err){showErr(err.message);btnStop.disabled=false}});
-  async function poll(){try{const res=await fetch('/status');if(res.redirected){location.href=res.url;return}const s=await res.json();for(const k of ['closed','skipped','left','cycles'])$('s_'+k).textContent=(s.stats?.[k]??0).toLocaleString('en-US');if(s.logs?.length)renderLogs(s.logs);botRunning=!!s.running;cooldown=s.cooldown??0;renderStatus();btnStart.disabled=botRunning;btnStop.disabled=!botRunning;if(errBox.textContent.startsWith('Status unavailable'))showErr('')}catch(err){showErr('Status unavailable: '+err.message)}}
+  function renderShifts(s){if(!s.shift_windows)return;$('shiftNow').textContent=s.clock?`${s.clock} WIB`:'';const key=JS(s.shift_windows);if(key===lastShifts)return;lastShifts=key;const n=s.shift_windows.length;$('shifts').replaceChildren(...s.shift_windows.map(([shift,from,to],i)=>{const active=i===n-1,d=document.createElement('div');d.className='shift'+(active?'':' grace');const b=document.createElement('b');b.textContent=shift;if(active){const t=document.createElement('span');t.style.cssText='font:700 9px var(--mono);letter-spacing:.1em;color:var(--green)';t.textContent=' ACTIVE';b.append(t)}const sm=document.createElement('small');sm.textContent=(active?'':'grace sweep · ')+from+(to!==from?' → '+to:'');d.append(b,sm);return d}))}
+  async function poll(){try{const res=await fetch('/status');if(res.redirected){location.href=res.url;return}const s=await res.json();for(const k of ['closed','skipped','left','cycles'])$('s_'+k).textContent=(s.stats?.[k]??0).toLocaleString('en-US');if(s.logs?.length)renderLogs(s.logs);renderShifts(s);botRunning=!!s.running;cooldown=s.cooldown??0;renderStatus();btnStart.disabled=botRunning;btnStop.disabled=!botRunning;if(errBox.textContent.startsWith('Status unavailable'))showErr('')}catch(err){showErr('Status unavailable: '+err.message)}}
   setInterval(poll,3000);poll();
   function toast(text,desc){$('toastText').textContent=text;$('toastDesc').textContent=desc||'';const t=$('toast');t.classList.add('show');setTimeout(()=>t.classList.remove('show'),6000)}
   async function pollAch(){try{const r=await fetch('/achievements');if(!r.ok)return;const a=await r.json(),fmt=n=>n.toLocaleString('en-US');$('achCount').textContent=fmt(a.count);$('achTitle').textContent=a.title;$('achDesc').textContent=a.description;$('achFill').style.width=a.percent+'%';$('achBar').setAttribute('aria-valuenow',a.percent);$('achNext').textContent=a.next_title?`${fmt(a.next_at-a.count)} to go until ${a.next_title} · ${a.percent}% of this tier`:'All achievements unlocked. Go touch grass.';let nextMarked=false;$('achLadder').replaceChildren(...a.ladder.map(t=>{const li=document.createElement('li');const isNext=!t.unlocked&&!nextMarked;if(isNext)nextMarked=true;li.className=t.unlocked?'on':isNext?'next':'';li.title=t.description;const i=document.createElement('span');i.className='i';i.textContent=t.unlocked?'★':'·';const n=document.createElement('span');n.textContent=t.title;const at=document.createElement('span');at.className='at';at.textContent=fmt(t.at);li.append(i,n,at);return li}));if(lastAch!==null&&a.title!==lastAch)toast(a.title,a.description);lastAch=a.title}catch(e){}}

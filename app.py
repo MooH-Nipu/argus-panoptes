@@ -77,7 +77,8 @@ class BotState:
         self.stats = {"closed": 0, "skipped": 0, "left": 0, "cycles": 0}
 
     def log(self, msg: str) -> None:
-        stamp = datetime.now().strftime("%H:%M:%S")
+        # Jam platform (WIB) biar sama dengan badge shift UI, nggak UTC di container.
+        stamp = datetime.now(cfg.UPSTREAM_TZ).strftime("%H:%M:%S")
         with self.lock:
             self.logs.append(f"[{stamp}] {msg}")
 
@@ -321,7 +322,7 @@ def logout():
 
 def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
     """Loop utama: sapu tiap interval sampai stop_event di-set (§8).
-    Window shift dihitung dari jam sistem tiap awal siklus (cfg.shift_windows)."""
+    Window shift dihitung dari jam platform tiap awal siklus (cfg.shift_windows)."""
     page_size = int(settings["page_size"])
 
     interval = int(settings["poll_interval_seconds"])
@@ -333,7 +334,7 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
     )
 
     limit_txt = "unlimited" if max_close <= 0 else f"max {max_close}/sweep"
-    bot.log(f"Bot started. Auto shift (system clock, 1h grace), interval={interval}s, "
+    bot.log(f"Bot started. Auto shift (platform clock WIB, 1h grace), interval={interval}s, "
             f"protect_high_severity={'ON' if protect_high else 'OFF'}, "
             f"close {limit_txt}, random action delay={action_delay[0]}-{action_delay[1]}s.")
 
@@ -342,8 +343,10 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
             cycle_start = time.time()
             # Budget max_close dibagi antar window (shift lama + baru) biar
             # cap per sapu nggak dobel pas grace period.
+            # Shift AKTIF disapu DULU: kalau sisa alarm shift lama ngabisin
+            # budget, shift baru jadi nggak kesapu sama sekali selama grace.
             budget = max_close
-            for shift, date_from, date_to in cfg.shift_windows():
+            for shift, date_from, date_to in reversed(cfg.shift_windows()):
                 if budget <= 0 or bot.stop_event.is_set():
                     break
                 bot.log(f"Cycle start. Shift {shift}, dates {date_from} to {date_to}.")
@@ -358,7 +361,7 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
 
             with bot.lock:
                 bot.stats["cycles"] += 1
-                bot.last_cycle = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                bot.last_cycle = datetime.now(cfg.UPSTREAM_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
         # Sleep interval, tapi cek stop tiap detik biar responsif.
             elapsed = time.time() - cycle_start
@@ -717,9 +720,14 @@ def stop():
 @login_required
 def status():
     bot = _get_bot()
+    # Shift ikut di-poll biar badge UI ganti sendiri pas pergantian shift,
+    # nggak nunggu halaman di-refresh.
+    shifts = cfg.shift_windows()
+    clock = datetime.now(cfg.UPSTREAM_TZ).strftime("%H:%M:%S")
     if not bot:
-        return jsonify({"running": False, "logs": [], "stats": {}, "last_cycle": ""})
-    return jsonify(bot.snapshot())
+        return jsonify({"running": False, "logs": [], "stats": {}, "last_cycle": "",
+                        "shift_windows": shifts, "clock": clock})
+    return jsonify({**bot.snapshot(), "shift_windows": shifts, "clock": clock})
 
 
 # ---------- Routes: rules CRUD ----------
@@ -739,6 +747,7 @@ def rules():
         protect=cfg.load_protect(),
         whitelist_fields=cfg.WHITELIST_FIELDS,
         whitelist_dispositions=cfg.WHITELIST_DISPOSITIONS,
+            numeric_fields=cfg.NUMERIC_FIELDS,
         protect_fields=cfg.PROTECT_FIELDS,
     )
 
@@ -775,6 +784,7 @@ def edit_whitelist(index: int):
             protect=cfg.load_protect(),
             whitelist_fields=cfg.WHITELIST_FIELDS,
             whitelist_dispositions=cfg.WHITELIST_DISPOSITIONS,
+            numeric_fields=cfg.NUMERIC_FIELDS,
             protect_fields=cfg.PROTECT_FIELDS,
             error=str(exc),
         ), status
@@ -820,6 +830,7 @@ def _handle_rule_add(fields: list[str], add_fn, extra_fields: tuple[str, ...] = 
             protect=cfg.load_protect(),
             whitelist_fields=cfg.WHITELIST_FIELDS,
             whitelist_dispositions=cfg.WHITELIST_DISPOSITIONS,
+            numeric_fields=cfg.NUMERIC_FIELDS,
             protect_fields=cfg.PROTECT_FIELDS,
             error=str(exc),
         )

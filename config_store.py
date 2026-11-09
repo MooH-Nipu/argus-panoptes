@@ -49,9 +49,9 @@ SHIFT_OPTIONS = [label for _, label in SHIFTS]
 # yang belum ke-close pas pergantian shift).
 SHIFT_GRACE = timedelta(hours=1)
 
-# Shift boundaries and date filter on the platform server run on UTC+5 (verified 2026-11-06:
-# created_at is UTC and shift 2 = 01:00-08:59 UTC), not the PC clock (UTC+7).
-UPSTREAM_TZ = timezone(timedelta(hours=5))
+# Jam platform = WIB (UTC+7): created_at UTC + 7 = shift 2 (01:00-08:59 UTC) pas
+# label tombolnya 08:00-16:00. Dibikin eksplisit biar container (UTC) nggak geser.
+UPSTREAM_TZ = timezone(timedelta(hours=7))
 
 
 def _upstream_now() -> datetime:
@@ -69,7 +69,7 @@ def _shift_start(t: datetime) -> tuple[datetime, str]:
 
 
 def current_shift(now: datetime | None = None) -> str:
-    """Label shift aktif dari jam platform (UTC+5)."""
+    """Label shift aktif dari jam platform (WIB)."""
     return _shift_start(now or _upstream_now())[1]
 
 
@@ -108,7 +108,13 @@ WHITELIST_FIELDS = [
     "alarm_type_equals",
     "agent_name_equals",
     "client_equals",
+    # Numeric threshold: alarm_count dari platform (int). Bisa dipakai sendiri
+    # atau digabung (AND) dengan field lain.
+    "alarm_count_gte",
+    "alarm_count_lte",
 ]
+# Field yang nilainya harus angka non-negatif, bukan string bebas.
+NUMERIC_FIELDS = ("alarm_count_gte", "alarm_count_lte")
 PROTECT_FIELDS = [
     "severity_equals",
     "alarm_name_equals",
@@ -224,9 +230,17 @@ def _clean_rule(rule: dict[str, Any], allowed_fields: list[str]) -> dict[str, An
     for field in allowed_fields:
         val = rule.get(field)
         if val is not None and str(val).strip() != "":
-            cleaned[field] = str(val).strip()
+            text = str(val).strip()
+            if field in NUMERIC_FIELDS:
+                if not text.isdigit():
+                    raise ValueError(f"{field} must be a whole number (0 or more).")
+                text = str(int(text))  # "007" -> "7"
+            cleaned[field] = text
     if not cleaned:
         raise ValueError("Rule needs at least one filled matching field.")
+    low, high = cleaned.get("alarm_count_gte"), cleaned.get("alarm_count_lte")
+    if low and high and int(low) > int(high):
+        raise ValueError("alarm_count_gte must be <= alarm_count_lte.")
     reason = str(rule.get("reason", "")).strip()
     if not reason:
         raise ValueError("Rule requires a 'reason'.")

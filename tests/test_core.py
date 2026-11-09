@@ -180,6 +180,43 @@ class LoginFlowTests(unittest.TestCase):
 
 
 class RuleMatchingTests(unittest.TestCase):
+    def test_alarm_count_thresholds(self) -> None:
+        alarm = {"alarm_name": "A", "alarm_count": 220}
+        self.assertTrue(core._match_rule(alarm, {"alarm_count_gte": "200"}))
+        self.assertFalse(core._match_rule(alarm, {"alarm_count_gte": "221"}))
+        self.assertTrue(core._match_rule(alarm, {"alarm_count_lte": "220"}))
+        self.assertFalse(core._match_rule(alarm, {"alarm_count_lte": "219"}))
+        # in-range dan boundary
+        self.assertTrue(core._match_rule(alarm, {"alarm_count_gte": "100", "alarm_count_lte": "500"}))
+
+    def test_alarm_count_boundaries_are_inclusive(self) -> None:
+        alarm = {"alarm_count": 100}
+        self.assertTrue(core._match_rule(alarm, {"alarm_count_gte": "100"}))
+        self.assertTrue(core._match_rule(alarm, {"alarm_count_lte": "100"}))
+
+    def test_alarm_count_combines_with_other_fields_as_and(self) -> None:
+        alarm = {"alarm_name": "Alarm A", "client": "PAC", "alarm_count": 220}
+        self.assertTrue(core._match_rule(
+            alarm, {"alarm_name_equals": "Alarm A", "alarm_count_gte": "200"}))
+        self.assertFalse(core._match_rule(
+            alarm, {"alarm_name_equals": "Alarm B", "alarm_count_gte": "200"}))
+
+    def test_missing_or_garbage_count_fails_closed(self) -> None:
+        """Data count nggak ada/rusak -> jangan match (biar alarm nggak ke-close)."""
+        for alarm in ({"alarm_name": "A"}, {"alarm_name": "A", "alarm_count": None},
+                      {"alarm_name": "A", "alarm_count": "-"}, {"alarm_name": "A", "alarm_count": ""}):
+            with self.subTest(alarm=alarm):
+                self.assertFalse(core._match_rule(alarm, {"alarm_count_lte": "99999"}))
+                self.assertFalse(core._match_rule(alarm, {"alarm_count_gte": "0"}))
+
+    def test_garbage_rule_value_does_not_raise(self) -> None:
+        """whitelist.yaml diedit tangan jadi non-angka: jangan TypeError."""
+        self.assertFalse(core._match_rule({"alarm_count": 50}, {"alarm_count_gte": "abc"}))
+        self.assertFalse(core._match_rule({"alarm_count": 50}, {"alarm_count_lte": ""}))
+
+    def test_count_string_from_platform_is_parsed(self) -> None:
+        self.assertTrue(core._match_rule({"alarm_count": "220"}, {"alarm_count_gte": "220"}))
+
     def test_client_equals_matches_case_insensitively(self) -> None:
         alarm = {"alarm_name": "Alarm A", "client": "DP-TASPEN"}
         rule = {"alarm_name_equals": "Alarm A", "client_equals": "dp-taspen"}
