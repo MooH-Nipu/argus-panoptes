@@ -193,6 +193,32 @@ class StartSettingsValidationTests(unittest.TestCase):
             with self.subTest(now=now):
                 self.assertEqual(app.cfg.shift_windows(now), expected)
 
+    def test_bot_loop_recomputes_shift_every_cycle(self) -> None:
+        """Shift dihitung ulang TIAP siklus, bukan sekali saat bot start.
+
+        Regresi keluhan lapangan: login 06:00 nyangkut di shift 1, harusnya
+        08:00 pindah sendiri ke shift 2, lalu 16:00 ke shift 3.
+        """
+        bot = app.BotState()
+        calls = []
+        s1, s2, s3 = app.cfg.SHIFT_OPTIONS
+        day = "2026-10-30"
+        per_cycle = [[(s1, day, day)], [(s2, day, day)], [(s3, day, day)]]
+
+        def fake_cycle(bot_, cookie, shift, page_size, protect, budget, **kw):
+            calls.append(shift)
+            if len(calls) >= len(per_cycle):
+                bot_.stop_event.set()
+            return 0
+
+        settings = {**app.cfg.DEFAULT_SETTINGS, "max_close_per_cycle": 100}
+        with patch.object(app.cfg, "shift_windows", side_effect=per_cycle), patch.object(
+            app, "_run_one_cycle", side_effect=fake_cycle
+        ), patch.object(bot.stop_event, "wait"):
+            app._bot_loop(bot, "cookie", settings)
+
+        self.assertEqual(calls, [s1, s2, s3])
+
     def test_bot_loop_shares_close_budget_across_shift_windows(self) -> None:
         bot = app.BotState()
         calls = []
