@@ -278,6 +278,23 @@ class DispositionVerificationTests(unittest.TestCase):
 
 
 class ServerActionRetryTests(unittest.TestCase):
+    def test_transient_status_is_not_treated_as_stale_hash(self) -> None:
+        """409 'Server Action unavailable' = platform sementara nolak, bukan hash basi.
+
+        Regresi: bot berhenti total 1 detik setelah start karena 409 dianggap
+        error permanen di level loop.
+        """
+        for status in (409, 429):
+            with self.subTest(status=status):
+                # fetch retries transient errors, so the buffer must cover MAX_RETRIES.
+                client = Client(
+                    [Response(status, "Server Action unavailable.")] * core.MAX_RETRIES
+                )
+                with self.assertRaises(core.ArgusTransientError):
+                    core._call_server_action(
+                        client, "https://upstream.test", "c", "a", [], "/x-alarm"
+                    )
+
     def test_auth_error_is_never_retried(self) -> None:
         client = Client([Response(403), Response(200)])
 

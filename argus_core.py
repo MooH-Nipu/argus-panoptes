@@ -116,6 +116,17 @@ class ArgusParseError(ArgusError):
     nyerah, nggak buang ~13 detik/alarm."""
 
 
+class ArgusTransientError(ArgusError):
+    """Server action ditolak sementara (409 'Server Action unavailable', 502/503/504
+    dari proxy, 429). Bukan hash basi dan bukan sesi mati, jadi cuma perlu dicoba
+    lagi siklus berikutnya — JANGAN sampai bikin loop bot berhenti."""
+
+
+class ArgusStaleAction(ArgusError):
+    """Next-Action hash udah nggak berlaku (platform redeploy): server balas
+    400 `Invalid Server Action request.` Buat trigger re-discovery otomatis."""
+
+
 # ---------- RSC response parser (§3.1) ----------
 
 def parse_rsc_response(raw_text: str) -> Any:
@@ -179,11 +190,19 @@ def _call_server_action(
                 raise ArgusAuthError(
                     "403 Forbidden — session likely expired or Next-Action hash changed."
                 )
+            if resp.status_code in (409, 429):
+                # 409 = Next.js "Server Action unavailable." (restart/redeploy di server,
+                # race dengan action lain). 429 = rate limit. Dua-duanya sementara.
+                raise ArgusTransientError(
+                    f"HTTP {resp.status_code} from {url}: {resp.text[:300]!r}"
+                )
+            if resp.status_code == 400:
+                raise ArgusStaleAction(f"HTTP 400 from {url}: {resp.text[:300]!r}")
             if resp.status_code >= 400:
-                # Surface the body: 400 here usually means a stale Next-Action hash or payload shape.
+                # Surface the body: 4xx lain biasanya payload shape yang berubah.
                 raise ArgusParseError(f"HTTP {resp.status_code} from {url}: {resp.text[:300]!r}")
             return parse_rsc_response(resp.text)
-        except (ArgusParseError, ArgusAuthError):
+        except (ArgusParseError, ArgusAuthError, ArgusStaleAction, ArgusTransientError):
             raise
         except (httpx.TransportError, ArgusError) as exc:
             last_exc = exc

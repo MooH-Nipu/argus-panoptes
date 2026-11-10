@@ -39,6 +39,18 @@ class PackagedConfigTests(unittest.TestCase):
         save.assert_not_called()
 
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def _no_network():
+    """Hash discovery di awal _bot_loop menembak platform sungguhan; test harus offline."""
+    with patch.object(app.action_hash, "refresh", return_value=[]), patch.object(
+        app.core, "fetch_all_open_alarms", return_value=[]
+    ):
+        yield
+
+
 class StartSettingsValidationTests(unittest.TestCase):
     def test_alarm_count_rule_validation(self) -> None:
         cleaned = app.cfg.clean_whitelist_rule(
@@ -212,12 +224,40 @@ class StartSettingsValidationTests(unittest.TestCase):
             return 0
 
         settings = {**app.cfg.DEFAULT_SETTINGS, "max_close_per_cycle": 100}
-        with patch.object(app.cfg, "shift_windows", side_effect=per_cycle), patch.object(
+        # Start bot juga memanggil shift_windows() sekali (buat hash discovery),
+        # jadi jatah side_effect harus lebih dari jumlah siklus.
+        windows_calls = iter([[("probe", day, day)]] + per_cycle)
+        with _no_network(), patch.object(
+            app.cfg, "shift_windows", side_effect=lambda: next(windows_calls)
+        ), patch.object(
             app, "_run_one_cycle", side_effect=fake_cycle
         ), patch.object(bot.stop_event, "wait"):
             app._bot_loop(bot, "cookie", settings)
 
         self.assertEqual(calls, [s1, s2, s3])
+
+    def test_bot_loop_survives_platform_busy_cycle(self) -> None:
+        """409 dari platform cuma melewati satu siklus, bot tetap jalan."""
+        bot = app.BotState()
+        calls = []
+        s1 = app.cfg.SHIFT_OPTIONS[0]
+        day = "2026-10-30"
+
+        def fake_cycle(bot_, cookie, shift, page_size, protect, budget, **kw):
+            calls.append(shift)
+            if len(calls) == 1:
+                raise app.core.ArgusTransientError("HTTP 409: 'Server Action unavailable.'")
+            bot_.stop_event.set()
+            return 0
+
+        settings = {**app.cfg.DEFAULT_SETTINGS, "max_close_per_cycle": 100}
+        with _no_network(), patch.object(app.cfg, "shift_windows", return_value=[(s1, day, day)]), patch.object(
+            app, "_run_one_cycle", side_effect=fake_cycle
+        ), patch.object(bot.stop_event, "wait"):
+            app._bot_loop(bot, "cookie", settings)
+
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(any("Cycle SKIPPED" in line for line in list(bot.logs)[-6:]))
 
     def test_bot_loop_shares_close_budget_across_shift_windows(self) -> None:
         bot = app.BotState()
@@ -229,7 +269,7 @@ class StartSettingsValidationTests(unittest.TestCase):
 
         windows = [("old", "2026-10-29", "2026-10-30"), ("new", "2026-10-30", "2026-10-30")]
         settings = {**app.cfg.DEFAULT_SETTINGS, "max_close_per_cycle": 40}
-        with patch.object(app.cfg, "shift_windows", return_value=windows), patch.object(
+        with _no_network(), patch.object(app.cfg, "shift_windows", return_value=windows), patch.object(
             app, "_run_one_cycle", side_effect=fake_cycle
         ), patch.object(bot.stop_event, "wait", side_effect=lambda s: bot.stop_event.set()):
             app._bot_loop(bot, "cookie", settings)
@@ -250,7 +290,7 @@ class StartSettingsValidationTests(unittest.TestCase):
 
         windows = [("old", "2026-10-29", "2026-10-30"), ("new", "2026-10-30", "2026-10-30")]
         settings = {**app.cfg.DEFAULT_SETTINGS, "max_close_per_cycle": 100}
-        with patch.object(app.cfg, "shift_windows", return_value=windows), patch.object(
+        with _no_network(), patch.object(app.cfg, "shift_windows", return_value=windows), patch.object(
             app, "_run_one_cycle", side_effect=fake_cycle
         ), patch.object(bot.stop_event, "wait", side_effect=lambda s: bot.stop_event.set()):
             app._bot_loop(bot, "cookie", settings)

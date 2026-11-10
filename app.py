@@ -38,6 +38,7 @@ from flask import (
 
 import config_store as cfg
 import argus_core as core
+import action_hash
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)  # sesi Flask lokal, regenerate tiap start
@@ -338,6 +339,19 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
             f"protect_high_severity={'ON' if protect_high else 'OFF'}, "
             f"close {limit_txt}, random action delay={action_delay[0]}-{action_delay[1]}s.")
 
+    # Ambil hash server action yang berlaku sekarang, biar redeploy nggak bikin bot
+    # berhenti dengan 400. Dua tahap: fetch dulu (ada di /x-alarm), lalu detail
+    # (take/close cuma di /x-alarm/<group_id>, dan butuh hash fetch yang baru).
+    action_hash.refresh(bot.base_url, cookie, log=bot.log)
+    try:
+        first = core.fetch_all_open_alarms(
+            bot.base_url, cookie, cfg.shift_windows()[0][0], page_size=1,
+        )
+        if first and (gid := first[0].get("group_id")):
+            action_hash.refresh(bot.base_url, cookie, group_id=gid, log=bot.log)
+    except core.ArgusError as exc:
+        bot.log(f"Hash discovery: detail page skipped ({exc}).")
+
     try:
         while not bot.stop_event.is_set():
             cycle_start = time.time()
@@ -350,14 +364,35 @@ def _bot_loop(bot: BotState, cookie: str, settings: dict[str, Any]) -> None:
                 if budget <= 0 or bot.stop_event.is_set():
                     break
                 bot.log(f"Cycle start. Shift {shift}, dates {date_from} to {date_to}.")
-                budget -= _run_one_cycle(
-                    bot, cookie, shift, page_size, protect_high, budget,
-                    date_from=date_from, date_to=date_to, last_days="",
-                    dry_run=bool(settings.get("dry_run", True)),
-                    enable_suppress_fallback=bool(
-                        settings.get("enable_suppress_fallback", False)),
-                    action_delay=action_delay,
-                )
+                try:
+                    budget -= _run_one_cycle(
+                        bot, cookie, shift, page_size, protect_high, budget,
+                        date_from=date_from, date_to=date_to, last_days="",
+                        dry_run=bool(settings.get("dry_run", True)),
+                        enable_suppress_fallback=bool(
+                            settings.get("enable_suppress_fallback", False)),
+                        action_delay=action_delay,
+                    )
+                except core.ArgusTransientError as exc:
+                    # Platform lagi nggak nerima server action (409/429/5xx). Coba lagi
+                    # siklus berikutnya; jangan matikan bot gara-gara ini.
+                    bot.log(f"Cycle SKIPPED (platform busy): {exc}")
+                except core.ArgusStaleAction as exc:
+                    # Hash berubah setelah redeploy. Ambil ulang sekali, lalu sapu
+                    # shift ini lagi di siklus yang sama.
+                    bot.log(f"Stale Next-Action hash: {exc}")
+                    action_hash.refresh(bot.base_url, cookie, log=bot.log)
+                    try:
+                        budget -= _run_one_cycle(
+                            bot, cookie, shift, page_size, protect_high, budget,
+                            date_from=date_from, date_to=date_to, last_days="",
+                            dry_run=bool(settings.get("dry_run", True)),
+                            enable_suppress_fallback=bool(
+                                settings.get("enable_suppress_fallback", False)),
+                            action_delay=action_delay,
+                        )
+                    except core.ArgusError as retry_exc:
+                        bot.log(f"Cycle ERROR after hash refresh: {retry_exc}")
 
             with bot.lock:
                 bot.stats["cycles"] += 1
@@ -714,6 +749,39 @@ def stop():
     bot.stop_event.set()
     bot.log("Stop requested, waiting for cycle to halt...")
     return jsonify({"ok": True})
+
+
+@app.route("/hash-refresh", methods=["POST"])
+@login_required
+def hash_refresh():
+    """Ambil ulang Next-Action hash dari platform (termasuk take/close dari
+    halaman detail). Dipakai kalau redeploy bikin bot balas 400."""
+    bot = _get_bot()
+    if not bot or not bot.upstream_cookie:
+        return jsonify({"ok": False, "error": "Not logged in to platform."}), 400
+    # Dua tahap: hash take/close cuma ada di halaman detail, dan buat buka detail
+    # butuh hash fetch yang berlaku. Kalau fetch sedang basi, refresh ini yang
+    # bikin dia pulih — jadi urutannya wajib fetch dulu, detail belakangan.
+    action_hash.refresh(bot.base_url, bot.upstream_cookie, log=bot.log)
+
+    group_id = None
+    try:
+        # Pakai shift AKTIF, bukan SHIFT_OPTIONS[0]: shift 1 di jam 17:00 balik kosong,
+        # jadi halaman detail nggak pernah ketemu dan hash take/close nggak ke-refresh.
+        shift = cfg.shift_windows()[0][0]
+        alarms = core.fetch_all_open_alarms(
+            bot.base_url, bot.upstream_cookie, shift, page_size=1,
+        )
+        group_id = alarms[0].get("group_id") if alarms else None
+    except core.ArgusError as exc:
+        bot.log(f"Hash refresh: could not read an alarm for the detail page ({exc}).")
+
+    changed = []
+    if group_id:
+        changed = action_hash.refresh(
+            bot.base_url, bot.upstream_cookie, group_id=group_id, log=bot.log
+        )
+    return jsonify({"ok": True, "changed": changed, "detail_page": bool(group_id)})
 
 
 @app.route("/status")
